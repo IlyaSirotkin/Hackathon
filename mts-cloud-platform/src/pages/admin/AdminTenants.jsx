@@ -17,11 +17,10 @@ import { useSnackbar } from 'notistack';
 import ResourceBar from '../../components/ResourceBar';
 import {
     getTenants,
-    setTenants as setStoreTenants,
     updateTenantStatus,
-    addTenant as storeAddTenant,
-    deleteTenant as storeDeleteTenant,
-    updateTenant as storeUpdateTenant,
+    addTenant,
+    deleteTenant,
+    updateTenant,
 } from '../../services/store';
 
 export default function AdminTenants() {
@@ -64,7 +63,7 @@ export default function AdminTenants() {
             },
             usage: { vms: 0, cpu: 0, ram: 0, disk: 0 },
         };
-        storeAddTenant(newTenant);
+        addTenant(newTenant);
         refreshTenants();
         setOpenCreate(false);
         setForm({ name: '', admin: '', maxVMs: 5, maxCPU: 16, maxRAM: 32, maxDisk: 200 });
@@ -72,7 +71,7 @@ export default function AdminTenants() {
     };
 
     const handleEdit = () => {
-        storeUpdateTenant(openEdit, {
+        updateTenant(openEdit, {
             name: form.name,
             admin: form.admin,
             quota: {
@@ -89,7 +88,7 @@ export default function AdminTenants() {
 
     const handleDelete = (id) => {
         const tenant = tenants.find((t) => t.id === id);
-        storeDeleteTenant(id);
+        deleteTenant(id);
         refreshTenants();
         setOpenDelete(null);
         enqueueSnackbar(`Тенант "${tenant?.name}" удалён`, { variant: 'info' });
@@ -344,8 +343,8 @@ export default function AdminTenants() {
             <Dialog open={!!openBan} onClose={() => setOpenBan(null)} maxWidth="xs" fullWidth>
                 <DialogTitle>
                     {tenants.find((t) => t.id === openBan)?.status === 'active'
-                        ? '🚫 Заблокировать тенант?'
-                        : '✅ Разблокировать тенант?'}
+                        ? 'Заблокировать тенант?'
+                        : 'Разблокировать тенант?'}
                 </DialogTitle>
                 <DialogContent>
                     {tenants.find((t) => t.id === openBan)?.status === 'active' ? (
