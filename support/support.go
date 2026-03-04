@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"math/rand"
 	"net/http"
+	"slices"
 	"strconv"
 )
+
+var OS = []string{"CentosOS", "Ubuntu"}
 
 // Вспомогательные функции
 func SendJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -27,6 +30,9 @@ func ValidateCreateRequest(req datatypes.CreateVMRequest) []string {
 	}
 	if req.OS == "" {
 		errors = append(errors, "OS is required")
+	}
+	if !slices.Contains(OS, req.OS) {
+		errors = append(errors, "Unknown OS")
 	}
 	if req.CPU < 1 || req.CPU > 64 {
 		errors = append(errors, "CPU must be between 1 and 64")

@@ -18,7 +18,6 @@ var (
 	vmMutex sync.RWMutex
 )
 
-// Получить все ВМ
 func GetAllVMs(w http.ResponseWriter, r *http.Request) {
 	vmMutex.RLock()
 	defer vmMutex.RUnlock()
@@ -38,7 +37,6 @@ func GetAllVMs(w http.ResponseWriter, r *http.Request) {
 		vmList = append(vmList, vm)
 	}
 
-	// Добавляем пагинацию
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
@@ -74,7 +72,6 @@ func GetAllVMs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Получить ВМ по ID
 func GetVM(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -97,7 +94,6 @@ func GetVM(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Создать ВМ (имитация - ничего реально не создаем)
 func CreateVM(w http.ResponseWriter, r *http.Request) {
 	var req datatypes.CreateVMRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -109,7 +105,6 @@ func CreateVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Валидация
 	errors := support.ValidateCreateRequest(req)
 	if len(errors) > 0 {
 		support.SendJSON(w, http.StatusBadRequest, datatypes.APIResponse{
@@ -121,10 +116,8 @@ func CreateVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Генерируем ID для "созданной" ВМ
 	newID := "vm-" + strconv.Itoa(len(vms)+1)
 
-	// Создаем объект ВМ (только для ответа, не сохраняем)
 	newVM := datatypes.VirtualMachine{
 		ID:          newID,
 		Name:        req.Name,
@@ -132,17 +125,15 @@ func CreateVM(w http.ResponseWriter, r *http.Request) {
 		CPU:         req.CPU,
 		RAM:         req.RAM,
 		Disk:        req.Disk,
-		Status:      "pending", // Начинает со статуса pending
+		Status:      "pending",
 		IPAddress:   "",
 		CreatedTime: time.Now(),
 		UpdatedTime: time.Now(),
 		Description: req.Description,
 	}
 
-	// Логируем полученный запрос (но ничего не создаем)
 	log.Printf("Получен запрос на создание ВМ: %+v", req)
 
-	// Отправляем ответ с имитацией создания
 	support.SendJSON(w, http.StatusAccepted, datatypes.APIResponse{
 		Success:   true,
 		Timestamp: time.Now(),
@@ -156,11 +147,10 @@ func CreateVM(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Полностью обновить ВМ (PUT)
 func UpdateVM(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req datatypes.CreateVMRequest // PUT ожидает все поля
+	var req datatypes.CreateVMRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		support.SendJSON(w, http.StatusBadRequest, datatypes.APIResponse{
 			Success:   false,
@@ -183,7 +173,6 @@ func UpdateVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Валидация
 	errors := support.ValidateCreateRequest(req)
 	if len(errors) > 0 {
 		support.SendJSON(w, http.StatusBadRequest, datatypes.APIResponse{
@@ -195,7 +184,6 @@ func UpdateVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Создаем обновленную версию для ответа
 	updatedVM := datatypes.VirtualMachine{
 		ID:          vm.ID,
 		Name:        req.Name,
@@ -247,7 +235,6 @@ func PatchVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Создаем обновленную версию на основе существующей
 	patchedVM := vm
 	patchedVM.UpdatedTime = time.Now()
 
@@ -280,7 +267,6 @@ func PatchVM(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Удалить ВМ (имитация)
 func DeleteVM(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -297,7 +283,7 @@ func DeleteVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("🗑️ Получен запрос на удаление ВМ %s", id)
+	log.Printf("Получен запрос на удаление ВМ %s", id)
 
 	support.SendJSON(w, http.StatusOK, datatypes.APIResponse{
 		Success:   true,
@@ -311,7 +297,6 @@ func DeleteVM(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Действия с ВМ
 func StartVM(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	handleVMAction(w, id, "start", "running")
@@ -335,54 +320,6 @@ func PauseVM(w http.ResponseWriter, r *http.Request) {
 func ResumeVM(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	handleVMAction(w, id, "resume", "running")
-}
-
-func HandleVMAction(w http.ResponseWriter, id, action, newStatus string) {
-	vmMutex.RLock()
-	vm, exists := vms[id]
-	vmMutex.RUnlock()
-
-	if !exists {
-		support.SendJSON(w, http.StatusNotFound, datatypes.APIResponse{
-			Success:   false,
-			Timestamp: time.Now(),
-			Error:     "VM not found",
-		})
-		return
-	}
-
-	updatedVM := vm
-	updatedVM.UpdatedTime = time.Now()
-
-	if action == "restart" {
-		updatedVM.Status = "restarting"
-	} else {
-		updatedVM.Status = newStatus
-	}
-
-	// Для start/resume добавляем IP если его нет
-	if (action == "start" || action == "resume") && updatedVM.IPAddress == "" {
-		updatedVM.IPAddress = support.GenerateRandomIP()
-	}
-
-	// Для stop/pause убираем IP
-	if action == "stop" || action == "pause" {
-		updatedVM.IPAddress = ""
-	}
-
-	log.Printf("Получен запрос на %s ВМ %s", action, id)
-
-	responseMsg := "VM " + action + "ed"
-	if action == "restart" {
-		responseMsg = "VM restart initiated"
-	}
-
-	support.SendJSON(w, http.StatusAccepted, datatypes.APIResponse{
-		Success:   true,
-		Timestamp: time.Now(),
-		Message:   responseMsg + " (simulated)",
-		Data:      updatedVM,
-	})
 }
 
 func handleVMAction(w http.ResponseWriter, id, action, newStatus string) {
