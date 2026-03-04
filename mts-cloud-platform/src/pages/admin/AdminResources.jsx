@@ -1,4 +1,4 @@
-// src/pages/admin/AdminResources.jsx
+
 import { useState } from 'react';
 import {
     Box, Card, CardContent, Typography, Grid, Divider, Chip,
@@ -12,7 +12,9 @@ import {
     Lock as LockIcon,
 } from '@mui/icons-material';
 import ResourceBar from '../../components/ResourceBar';
-import { mockTenants, mockDashboardStats, mockNetworks } from '../../services/mockData';
+import ArchitectureDiagram from '../../components/ArchitectureDiagram';
+import NetworkDiagram from '../../components/NetworkDiagram';
+import { mockTenants, mockDashboardStats, mockNetworks, mockVMs } from '../../services/mockData';
 
 export default function AdminResources() {
     const [stats] = useState(mockDashboardStats);
@@ -72,7 +74,7 @@ export default function AdminResources() {
                     </Card>
                 </Grid>
 
-                {/* Ресурсы по тенантам - Bar Chart */}
+                {/* Ресурсы по тенантам */}
                 <Grid item xs={12} md={6}>
                     <Card sx={{ height: '100%' }}>
                         <CardContent sx={{ p: 3 }}>
@@ -101,151 +103,38 @@ export default function AdminResources() {
                     </Card>
                 </Grid>
 
-                {/* Сетевая изоляция */}
-                <Grid item xs={12}>
-                    <Card>
-                        <CardContent sx={{ p: 3 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-                                <ShieldIcon sx={{ color: 'success.main' }} />
-                                <Typography variant="h6">
-                                    Схема сетевой изоляции тенантов
-                                </Typography>
-                            </Box>
-                            <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
-                                Каждый тенант получает изолированный VLAN-сегмент с собственной подсетью.
-                                Трафик между тенантами невозможен на уровне сетевой инфраструктуры.
-                            </Typography>
-
-                            <Grid container spacing={2}>
-                                {mockNetworks.map((network) => {
-                                    const tenant = mockTenants.find((t) => t.id === network.tenantId);
-                                    return (
-                                        <Grid item xs={12} sm={6} md={4} key={network.id}>
-                                            <Card sx={{
-                                                bgcolor: 'rgba(255,255,255,0.02)',
-                                                border: '1px solid',
-                                                borderColor: tenant?.status === 'active'
-                                                    ? 'rgba(0,200,83,0.3)'
-                                                    : 'rgba(255,255,255,0.06)',
-                                            }}>
-                                                <CardContent sx={{ p: 2 }}>
-                                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
-                                                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                                                            {tenant?.name || 'Неизвестный'}
-                                                        </Typography>
-                                                        <Chip
-                                                            label={`VLAN ${network.vlan}`}
-                                                            size="small"
-                                                            color="info"
-                                                            variant="outlined"
-                                                            sx={{ fontSize: '0.7rem', height: 22 }}
-                                                        />
-                                                    </Box>
-                                                    <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary', mb: 0.5 }}>
-                                                        Подсеть: {network.subnet}
-                                                    </Typography>
-                                                    <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary', mb: 0.5 }}>
-                                                        Шлюз: {network.gateway}
-                                                    </Typography>
-                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
-                                                        <LockIcon sx={{ fontSize: 14, color: 'success.main' }} />
-                                                        <Typography variant="caption" sx={{ color: 'success.main' }}>
-                                                            Изолирована
-                                                        </Typography>
-                                                    </Box>
-                                                </CardContent>
-                                            </Card>
-                                        </Grid>
-                                    );
-                                })}
-                            </Grid>
-                        </CardContent>
-                    </Card>
-                </Grid>
-
-                {/* Архитектурная схема */}
+                {/* Схема сетевой изоляции */}
                 <Grid item xs={12}>
                     <Card>
                         <CardContent sx={{ p: 3 }}>
                             <Typography variant="h6" sx={{ mb: 2 }}>
-                                Архитектура облачной платформы
+                                Сетевая изоляция тенантов
                             </Typography>
-                            <Box
-                                sx={{
-                                    p: 3,
-                                    borderRadius: 2,
-                                    bgcolor: 'rgba(255,255,255,0.02)',
-                                    border: '1px solid rgba(255,255,255,0.06)',
-                                    fontFamily: 'monospace',
-                                    fontSize: '0.8rem',
-                                    whiteSpace: 'pre',
-                                    overflowX: 'auto',
-                                    lineHeight: 1.7,
-                                    color: 'text.secondary',
-                                }}
-                            >
-                                {`
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                          MTS Cloud IaaS Platform                            │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────────┐     ┌─────────────────────┐                        │
-│  │   Client Web Panel  │     │   Admin Web Panel   │                        │
-│  │   (React + MUI)     │     │   (React + MUI)     │                        │
-│  └──────────┬──────────┘     └──────────┬──────────┘                        │
-│             │                           │                                    │
-│             └───────────┬───────────────┘                                    │
-│                         │                                                    │
-│                 ┌───────▼────────┐                                           │
-│                 │   REST API     │                                           │
-│                 │  (Backend)     │                                           │
-│                 └───────┬────────┘                                           │
-│                         │                                                    │
-│          ┌──────────────┼──────────────┐                                     │
-│          │              │              │                                      │
-│   ┌──────▼─────┐ ┌─────▼──────┐ ┌────▼──────┐                              │
-│   │   Auth &   │ │  Resource  │ │  Network  │                               │
-│   │   RBAC     │ │  Manager   │ │  Manager  │                               │
-│   │  Service   │ │  Service   │ │  Service  │                               │
-│   └──────┬─────┘ └─────┬──────┘ └────┬──────┘                              │
-│          │              │             │                                       │
-│   ┌──────▼──────────────▼─────────────▼──────┐                              │
-│   │              Database (PostgreSQL)        │                              │
-│   │  ┌─────────┐ ┌──────────┐ ┌───────────┐  │                             │
-│   │  │ Users & │ │   VMs &  │ │ Networks  │  │                              │
-│   │  │ Tenants │ │  Quotas  │ │ & VLANs   │  │                             │
-│   │  └─────────┘ └──────────┘ └───────────┘  │                              │
-│   └──────────────────┬───────────────────────┘                              │
-│                      │                                                       │
-│   ┌──────────────────▼───────────────────────┐                              │
-│   │       Hypervisor Layer (Proxmox)         │                              │
-│   │                                          │                              │
-│   │  ┌──────────┐  ┌──────────┐  ┌────────┐ │                              │
-│   │  │ Node 1   │  │ Node 2   │  │ Node 3 │ │                              │
-│   │  │ ┌──┐┌──┐ │  │ ┌──┐┌──┐ │  │ ┌──┐   │ │                             │
-│   │  │ │VM││VM│ │  │ │VM││VM│ │  │ │VM│   │ │                              │
-│   │  │ └──┘└──┘ │  │ └──┘└──┘ │  │ └──┘   │ │                             │
-│   │  └──────────┘  └──────────┘  └────────┘ │                              │
-│   └──────────────────────────────────────────┘                              │
-│                                                                              │
-│   ┌──────────────────────────────────────────┐                              │
-│   │         Network Infrastructure           │                              │
-│   │                                          │                              │
-│   │  VLAN 101 ◄──► Tenant 1 (isolated)      │                              │
-│   │  VLAN 102 ◄──► Tenant 2 (isolated)      │                              │
-│   │  VLAN 103 ◄──► Tenant 3 (isolated)      │                              │
-│   │  ════════════════════════════════        │                              │
-│   │     No cross-tenant traffic              │                              │
-│   └──────────────────────────────────────────┘                              │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
-`}
-                            </Box>
+                            <NetworkDiagram
+                                tenants={mockTenants}
+                                networks={mockNetworks}
+                                vms={mockVMs}
+                            />
                         </CardContent>
                     </Card>
                 </Grid>
 
-                {/* Таблица квот по тенантам */}
+                {/* Архитектура платформы */}
+                <Grid item xs={12}>
+                    <Card>
+                        <CardContent sx={{ p: 3 }}>
+                            <Typography variant="h6" sx={{ mb: 1 }}>
+                                Архитектура облачной платформы
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
+                                Многоуровневая архитектура с разделением ответственности между компонентами
+                            </Typography>
+                            <ArchitectureDiagram />
+                        </CardContent>
+                    </Card>
+                </Grid>
+
+                {/* Детальное использование квот */}
                 <Grid item xs={12}>
                     <Card>
                         <CardContent sx={{ p: 3 }}>
@@ -274,29 +163,10 @@ export default function AdminResources() {
                                                         variant="outlined"
                                                     />
                                                 </Box>
-                                                <ResourceBar
-                                                    label="Виртуальные машины"
-                                                    used={tenant.usage.vms}
-                                                    total={tenant.quota.maxVMs}
-                                                />
-                                                <ResourceBar
-                                                    label="CPU"
-                                                    used={tenant.usage.cpu}
-                                                    total={tenant.quota.maxCPU}
-                                                    unit=" vCPU"
-                                                />
-                                                <ResourceBar
-                                                    label="RAM"
-                                                    used={tenant.usage.ram}
-                                                    total={tenant.quota.maxRAM}
-                                                    unit=" ГБ"
-                                                />
-                                                <ResourceBar
-                                                    label="Диск"
-                                                    used={tenant.usage.disk}
-                                                    total={tenant.quota.maxDisk}
-                                                    unit=" ГБ"
-                                                />
+                                                <ResourceBar label="ВМ" used={tenant.usage.vms} total={tenant.quota.maxVMs} />
+                                                <ResourceBar label="CPU" used={tenant.usage.cpu} total={tenant.quota.maxCPU} unit=" vCPU" />
+                                                <ResourceBar label="RAM" used={tenant.usage.ram} total={tenant.quota.maxRAM} unit=" ГБ" />
+                                                <ResourceBar label="Диск" used={tenant.usage.disk} total={tenant.quota.maxDisk} unit=" ГБ" />
                                             </CardContent>
                                         </Card>
                                     </Grid>
