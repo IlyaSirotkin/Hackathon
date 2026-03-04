@@ -1,10 +1,9 @@
-
 import { useState } from 'react';
 import {
     Box, Card, CardContent, Typography, Button, Grid, IconButton,
     Dialog, DialogTitle, DialogContent, DialogActions, TextField,
     Chip, Table, TableBody, TableCell, TableContainer, TableHead,
-    TableRow, Tooltip, MenuItem, Alert,
+    TableRow, Tooltip, Alert,
 } from '@mui/material';
 import {
     Add as AddIcon,
@@ -16,11 +15,18 @@ import {
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import ResourceBar from '../../components/ResourceBar';
-import { mockTenants } from '../../services/mockData';
+import {
+    getTenants,
+    setTenants as setStoreTenants,
+    updateTenantStatus,
+    addTenant as storeAddTenant,
+    deleteTenant as storeDeleteTenant,
+    updateTenant as storeUpdateTenant,
+} from '../../services/store';
 
 export default function AdminTenants() {
     const { enqueueSnackbar } = useSnackbar();
-    const [tenants, setTenants] = useState([...mockTenants]);
+    const [tenants, setTenants] = useState(getTenants());
     const [openCreate, setOpenCreate] = useState(false);
     const [openEdit, setOpenEdit] = useState(null);
     const [openDelete, setOpenDelete] = useState(null);
@@ -33,6 +39,11 @@ export default function AdminTenants() {
         maxRAM: 32,
         maxDisk: 200,
     });
+
+    // Синхронизация локального стейта со store
+    const refreshTenants = () => {
+        setTenants([...getTenants()]);
+    };
 
     const handleCreate = () => {
         if (!form.name.trim() || !form.admin.trim()) {
@@ -53,37 +64,33 @@ export default function AdminTenants() {
             },
             usage: { vms: 0, cpu: 0, ram: 0, disk: 0 },
         };
-        setTenants((prev) => [...prev, newTenant]);
+        storeAddTenant(newTenant);
+        refreshTenants();
         setOpenCreate(false);
         setForm({ name: '', admin: '', maxVMs: 5, maxCPU: 16, maxRAM: 32, maxDisk: 200 });
         enqueueSnackbar(`Тенант "${newTenant.name}" создан`, { variant: 'success' });
     };
 
     const handleEdit = () => {
-        setTenants((prev) =>
-            prev.map((t) =>
-                t.id === openEdit
-                    ? {
-                        ...t,
-                        name: form.name,
-                        admin: form.admin,
-                        quota: {
-                            maxVMs: form.maxVMs,
-                            maxCPU: form.maxCPU,
-                            maxRAM: form.maxRAM,
-                            maxDisk: form.maxDisk,
-                        },
-                    }
-                    : t
-            )
-        );
+        storeUpdateTenant(openEdit, {
+            name: form.name,
+            admin: form.admin,
+            quota: {
+                maxVMs: form.maxVMs,
+                maxCPU: form.maxCPU,
+                maxRAM: form.maxRAM,
+                maxDisk: form.maxDisk,
+            },
+        });
+        refreshTenants();
         setOpenEdit(null);
         enqueueSnackbar('Тенант обновлён', { variant: 'success' });
     };
 
     const handleDelete = (id) => {
         const tenant = tenants.find((t) => t.id === id);
-        setTenants((prev) => prev.filter((t) => t.id !== id));
+        storeDeleteTenant(id);
+        refreshTenants();
         setOpenDelete(null);
         enqueueSnackbar(`Тенант "${tenant?.name}" удалён`, { variant: 'info' });
     };
@@ -92,28 +99,18 @@ export default function AdminTenants() {
         const tenant = tenants.find((t) => t.id === id);
         const newStatus = tenant.status === 'active' ? 'suspended' : 'active';
 
-        setTenants((prev) =>
-            prev.map((t) =>
-                t.id === id ? { ...t, status: newStatus } : t
-            )
-        );
-
-        // Также обновляем mockTenants чтобы AuthContext видел изменения
-        const mockTenant = mockTenants.find((t) => t.id === id);
-        if (mockTenant) {
-            mockTenant.status = newStatus;
-        }
-
+        updateTenantStatus(id, newStatus);
+        refreshTenants();
         setOpenBan(null);
 
         if (newStatus === 'suspended') {
             enqueueSnackbar(
-                `Тенант "${tenant.name}" заблокирован. Клиент не сможет войти в систему.`,
+                `Тенант "${tenant.name}" заблокирован. Клиент не сможет войти.`,
                 { variant: 'warning' }
             );
         } else {
             enqueueSnackbar(
-                `Тенант "${tenant.name}" разблокирован. Клиент может войти.`,
+                `Тенант "${tenant.name}" разблокирован.`,
                 { variant: 'success' }
             );
         }
@@ -131,7 +128,7 @@ export default function AdminTenants() {
         setOpenEdit(tenant.id);
     };
 
-    const TenantForm = ({ onSubmit, submitLabel }) => (
+    const TenantForm = () => (
         <Box sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
             <TextField
                 label="Название организации"
@@ -205,7 +202,6 @@ export default function AdminTenants() {
                 </Button>
             </Box>
 
-            {/* Таблица тенантов */}
             <Card>
                 <TableContainer>
                     <Table>
@@ -226,32 +222,21 @@ export default function AdminTenants() {
                                     hover
                                     sx={{
                                         opacity: tenant.status === 'suspended' ? 0.6 : 1,
-                                        bgcolor: tenant.status === 'suspended'
-                                            ? 'rgba(227,6,17,0.03)'
-                                            : 'transparent',
+                                        bgcolor: tenant.status === 'suspended' ? 'rgba(227,6,17,0.03)' : 'transparent',
                                     }}
                                 >
                                     <TableCell>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                            <BusinessIcon sx={{
-                                                color: tenant.status === 'active' ? 'primary.main' : 'error.main',
-                                            }} />
+                                            <BusinessIcon sx={{ color: tenant.status === 'active' ? 'primary.main' : 'error.main' }} />
                                             <Box>
-                                                <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                                    {tenant.name}
-                                                </Typography>
-                                                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                                                    {tenant.admin}
-                                                </Typography>
+                                                <Typography variant="body2" sx={{ fontWeight: 600 }}>{tenant.name}</Typography>
+                                                <Typography variant="caption" sx={{ color: 'text.secondary' }}>{tenant.admin}</Typography>
                                             </Box>
                                         </Box>
                                     </TableCell>
                                     <TableCell>
                                         <Chip
-                                            icon={tenant.status === 'active'
-                                                ? <ActiveIcon sx={{ fontSize: 16 }} />
-                                                : <BlockIcon sx={{ fontSize: 16 }} />
-                                            }
+                                            icon={tenant.status === 'active' ? <ActiveIcon sx={{ fontSize: 16 }} /> : <BlockIcon sx={{ fontSize: 16 }} />}
                                             label={tenant.status === 'active' ? 'Активен' : 'Заблокирован'}
                                             size="small"
                                             color={tenant.status === 'active' ? 'success' : 'error'}
@@ -269,9 +254,7 @@ export default function AdminTenants() {
                                         </Typography>
                                     </TableCell>
                                     <TableCell>
-                                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                                            {tenant.createdAt}
-                                        </Typography>
+                                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>{tenant.createdAt}</Typography>
                                     </TableCell>
                                     <TableCell align="right">
                                         <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
@@ -286,10 +269,7 @@ export default function AdminTenants() {
                                                     color={tenant.status === 'active' ? 'warning' : 'success'}
                                                     onClick={() => setOpenBan(tenant.id)}
                                                 >
-                                                    {tenant.status === 'active'
-                                                        ? <BlockIcon fontSize="small" />
-                                                        : <ActiveIcon fontSize="small" />
-                                                    }
+                                                    {tenant.status === 'active' ? <BlockIcon fontSize="small" /> : <ActiveIcon fontSize="small" />}
                                                 </IconButton>
                                             </Tooltip>
                                             <Tooltip title="Удалить">
@@ -306,23 +286,18 @@ export default function AdminTenants() {
                 </TableContainer>
             </Card>
 
-            {/* Карточки квот */}
             <Typography variant="h6" sx={{ mt: 4, mb: 2 }}>Использование квот</Typography>
             <Grid container spacing={2}>
                 {tenants.map((tenant) => (
                     <Grid item xs={12} md={6} lg={4} key={tenant.id + '-quota'}>
                         <Card sx={{
                             border: '1px solid',
-                            borderColor: tenant.status === 'suspended'
-                                ? 'rgba(227,6,17,0.3)'
-                                : 'rgba(255,255,255,0.06)',
+                            borderColor: tenant.status === 'suspended' ? 'rgba(227,6,17,0.3)' : 'rgba(255,255,255,0.06)',
                             opacity: tenant.status === 'suspended' ? 0.7 : 1,
                         }}>
                             <CardContent sx={{ p: 2.5 }}>
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                                        {tenant.name}
-                                    </Typography>
+                                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{tenant.name}</Typography>
                                     <Chip
                                         label={tenant.status === 'active' ? 'Активен' : 'Заблокирован'}
                                         size="small"
@@ -345,69 +320,51 @@ export default function AdminTenants() {
                 ))}
             </Grid>
 
-            {/* ===== ДИАЛОГ СОЗДАНИЯ ===== */}
+            {/* Диалог создания */}
             <Dialog open={openCreate} onClose={() => setOpenCreate(false)} maxWidth="sm" fullWidth>
                 <DialogTitle>Создать тенант</DialogTitle>
-                <DialogContent>
-                    <TenantForm />
-                </DialogContent>
+                <DialogContent><TenantForm /></DialogContent>
                 <DialogActions sx={{ px: 3, pb: 2 }}>
                     <Button onClick={() => setOpenCreate(false)}>Отмена</Button>
                     <Button variant="contained" onClick={handleCreate}>Создать</Button>
                 </DialogActions>
             </Dialog>
 
-            {/* ===== ДИАЛОГ РЕДАКТИРОВАНИЯ ===== */}
+            {/* Диалог редактирования */}
             <Dialog open={!!openEdit} onClose={() => setOpenEdit(null)} maxWidth="sm" fullWidth>
                 <DialogTitle>Редактировать тенант</DialogTitle>
-                <DialogContent>
-                    <TenantForm />
-                </DialogContent>
+                <DialogContent><TenantForm /></DialogContent>
                 <DialogActions sx={{ px: 3, pb: 2 }}>
                     <Button onClick={() => setOpenEdit(null)}>Отмена</Button>
                     <Button variant="contained" onClick={handleEdit}>Сохранить</Button>
                 </DialogActions>
             </Dialog>
 
-            {/* ===== ДИАЛОГ БЛОКИРОВКИ ===== */}
+            {/* Диалог блокировки */}
             <Dialog open={!!openBan} onClose={() => setOpenBan(null)} maxWidth="xs" fullWidth>
                 <DialogTitle>
                     {tenants.find((t) => t.id === openBan)?.status === 'active'
                         ? '🚫 Заблокировать тенант?'
-                        : '✅ Разблокировать тенант?'
-                    }
+                        : '✅ Разблокировать тенант?'}
                 </DialogTitle>
                 <DialogContent>
                     {tenants.find((t) => t.id === openBan)?.status === 'active' ? (
                         <Box>
                             <Alert severity="warning" sx={{ mb: 2 }}>
-                                Клиент <strong>{tenants.find((t) => t.id === openBan)?.name}</strong> будет
-                                немедленно заблокирован
+                                Клиент <strong>{tenants.find((t) => t.id === openBan)?.name}</strong> будет заблокирован
                             </Alert>
-                            <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>
-                                Что произойдёт:
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                                • Клиент <strong>не сможет войти</strong> в личный кабинет
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                                • Текущая сессия будет завершена при следующем запросе
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                                • Виртуальные машины <strong>продолжат работать</strong>
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                                • Управление ВМ станет недоступно для клиента
-                            </Typography>
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>• Клиент не сможет войти в личный кабинет</Typography>
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>• Текущая сессия будет завершена</Typography>
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>• ВМ продолжат работать</Typography>
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>• Управление ВМ станет недоступно</Typography>
                         </Box>
                     ) : (
                         <Box>
                             <Alert severity="success" sx={{ mb: 2 }}>
-                                Клиент <strong>{tenants.find((t) => t.id === openBan)?.name}</strong> получит
-                                доступ к системе
+                                Клиент <strong>{tenants.find((t) => t.id === openBan)?.name}</strong> будет разблокирован
                             </Alert>
                             <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                                Клиент сможет снова войти в личный кабинет и управлять своими ресурсами.
+                                Клиент сможет снова войти и управлять ресурсами.
                             </Typography>
                         </Box>
                     )}
@@ -419,31 +376,23 @@ export default function AdminTenants() {
                         color={tenants.find((t) => t.id === openBan)?.status === 'active' ? 'error' : 'success'}
                         onClick={() => handleToggleBan(openBan)}
                     >
-                        {tenants.find((t) => t.id === openBan)?.status === 'active'
-                            ? 'Заблокировать'
-                            : 'Разблокировать'
-                        }
+                        {tenants.find((t) => t.id === openBan)?.status === 'active' ? 'Заблокировать' : 'Разблокировать'}
                     </Button>
                 </DialogActions>
             </Dialog>
 
-            {/* ===== ДИАЛОГ УДАЛЕНИЯ ===== */}
+            {/* Диалог удаления */}
             <Dialog open={!!openDelete} onClose={() => setOpenDelete(null)} maxWidth="xs" fullWidth>
                 <DialogTitle>Удалить тенант?</DialogTitle>
                 <DialogContent>
-                    <Alert severity="error" sx={{ mb: 2 }}>
-                        Это действие необратимо!
-                    </Alert>
+                    <Alert severity="error" sx={{ mb: 2 }}>Это действие необратимо!</Alert>
                     <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                        Тенант <strong>"{tenants.find((t) => t.id === openDelete)?.name}"</strong> и все
-                        его ресурсы (ВМ, сети, пользователи) будут удалены навсегда.
+                        Тенант <strong>"{tenants.find((t) => t.id === openDelete)?.name}"</strong> будет удалён навсегда.
                     </Typography>
                 </DialogContent>
                 <DialogActions sx={{ px: 3, pb: 2 }}>
                     <Button onClick={() => setOpenDelete(null)}>Отмена</Button>
-                    <Button variant="contained" color="error" onClick={() => handleDelete(openDelete)}>
-                        Удалить навсегда
-                    </Button>
+                    <Button variant="contained" color="error" onClick={() => handleDelete(openDelete)}>Удалить</Button>
                 </DialogActions>
             </Dialog>
         </Box>

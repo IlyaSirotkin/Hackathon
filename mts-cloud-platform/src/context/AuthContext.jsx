@@ -1,60 +1,22 @@
-
+// src/context/AuthContext.jsx
 import { createContext, useContext, useState, useEffect } from 'react';
-import { mockTenants } from '../services/mockData';
+import { getUserByCredentials, isTenantBanned } from '../services/store';
 
 const AuthContext = createContext(null);
-
-const USE_MOCK = true;
-
-const MOCK_USERS = [
-    {
-        id: 'u1',
-        email: 'admin@mtscloud.ru',
-        password: 'admin123',
-        name: 'Администратор',
-        role: 'admin',
-        tenantId: null,
-    },
-    {
-        id: 'u2',
-        email: 'client@company.ru',
-        password: 'client123',
-        name: 'ООО Компания',
-        role: 'client',
-        tenantId: 'tenant-1',
-    },
-    {
-        id: 'u3',
-        email: 'demo@startup.ru',
-        password: 'demo123',
-        name: 'Стартап Технологии',
-        role: 'client',
-        tenantId: 'tenant-2',
-    },
-    {
-        id: 'u4',
-        email: 'blocked@test.ru',
-        password: 'blocked123',
-        name: 'Заблокированный',
-        role: 'client',
-        tenantId: 'tenant-3',
-    },
-];
 
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    // При загрузке — проверяем сохранённую сессию
     useEffect(() => {
         const saved = localStorage.getItem('mts_cloud_user');
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
-                // Проверяем не заблокирован ли тенант
+                // Проверяем бан
                 if (parsed.role === 'client' && parsed.tenantId) {
-                    const tenant = mockTenants.find((t) => t.id === parsed.tenantId);
-                    if (tenant && tenant.status === 'suspended') {
-                        // Тенант заблокирован — разлогиниваем
+                    if (isTenantBanned(parsed.tenantId)) {
                         localStorage.removeItem('mts_cloud_user');
                         setUser(null);
                         setLoading(false);
@@ -69,32 +31,47 @@ export function AuthProvider({ children }) {
         setLoading(false);
     }, []);
 
-    const login = async (email, password) => {
-        if (USE_MOCK) {
-            const found = MOCK_USERS.find(
-                (u) => u.email === email && u.password === password
-            );
-            if (!found) throw new Error('Неверный email или пароль');
+    // Каждую секунду проверяем — не забанили ли текущего юзера
+    useEffect(() => {
+        if (!user) return;
 
-            // Проверяем бан тенанта
-            if (found.role === 'client' && found.tenantId) {
-                const tenant = mockTenants.find((t) => t.id === found.tenantId);
-                if (tenant && tenant.status === 'suspended') {
-                    throw new Error('Ваш аккаунт заблокирован. Обратитесь к администратору.');
+        const interval = setInterval(() => {
+            if (user.role === 'client' && user.tenantId) {
+                if (isTenantBanned(user.tenantId)) {
+                    setUser(null);
+                    localStorage.removeItem('mts_cloud_user');
                 }
             }
+        }, 1000);
 
-            const userData = {
-                id: found.id,
-                email: found.email,
-                name: found.name,
-                role: found.role,
-                tenantId: found.tenantId,
-            };
-            setUser(userData);
-            localStorage.setItem('mts_cloud_user', JSON.stringify(userData));
-            return userData;
+        return () => clearInterval(interval);
+    }, [user]);
+
+    const login = async (email, password) => {
+        // Ищем пользователя в store
+        const found = getUserByCredentials(email, password);
+        if (!found) {
+            throw new Error('Неверный email или пароль');
         }
+
+        // Проверяем бан тенанта
+        if (found.role === 'client' && found.tenantId) {
+            if (isTenantBanned(found.tenantId)) {
+                throw new Error('Ваш аккаунт заблокирован. Обратитесь к администратору.');
+            }
+        }
+
+        const userData = {
+            id: found.id,
+            email: found.email,
+            name: found.name,
+            role: found.role,
+            tenantId: found.tenantId,
+        };
+
+        setUser(userData);
+        localStorage.setItem('mts_cloud_user', JSON.stringify(userData));
+        return userData;
     };
 
     const logout = () => {
