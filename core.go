@@ -12,6 +12,16 @@ var requestID = 0
 
 func main() {
 
+	err := handlerfunctions.InitProxmox(
+		"https://your-proxmox:8006/api2/json",
+		"root@pam",
+		"your-password",
+		"pve-node1",
+	)
+	if err != nil {
+		log.Fatalf("Failed to connect to Proxmox: %v", err)
+	}
+
 	handlers.InitTestData()
 
 	mux := http.NewServeMux()
