@@ -8,11 +8,13 @@ import {
 } from '@mui/icons-material';
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-    ResponsiveContainer, PieChart, Pie, Cell, Legend,
+    ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 import StatCard from '../../components/StatCard';
 import ResourceBar from '../../components/ResourceBar';
-import { mockDashboardStats, mockTenants } from '../../services/mockData';
+import { mockDashboardStats, mockTenants, mockLoadHistory } from '../../services/mockData';
+
+const COLORS = ['#E30611', '#2979FF', '#00C853', '#FFB300', '#AB47BC'];
 
 export default function AdminDashboard() {
     const [stats] = useState(mockDashboardStats);
@@ -21,27 +23,24 @@ export default function AdminDashboard() {
         .filter((t) => t.status === 'active')
         .map((t) => ({
             name: t.name,
-            value: t.usage.cpu,
+            value: t.usage.vms,
         }));
-
-    const PIE_COLORS = ['#E30611', '#2979FF', '#00C853', '#FFB300', '#AB47BC'];
 
     return (
         <Box>
-            <Typography variant="h5" sx={{ mb: 0.5 }}>Панель управления</Typography>
+            <Typography variant="h5" sx={{ mb: 0.5 }}>Дашборд</Typography>
             <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
-                Общий обзор облачной инфраструктуры
+                Обзор облачной платформы
             </Typography>
 
-            {/* Карточки статистики */}
-            <Grid container spacing={3}>
+            <Grid container spacing={3} sx={{ mb: 3 }}>
                 <Grid item xs={12} sm={6} md={3}>
                     <StatCard
                         title="Тенанты"
                         value={stats.totalTenants}
                         subtitle={`${stats.activeTenants} активных`}
-                        icon={<PeopleIcon sx={{ color: '#E30611' }} />}
-                        color="primary.main"
+                        icon={<PeopleIcon />}
+                        color="#2979FF"
                     />
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
@@ -49,41 +48,41 @@ export default function AdminDashboard() {
                         title="Виртуальные машины"
                         value={stats.totalVMs}
                         subtitle={`${stats.runningVMs} работают`}
-                        icon={<VMIcon sx={{ color: '#2979FF' }} />}
-                        color="info.main"
+                        icon={<VMIcon />}
+                        color="#00C853"
                     />
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
                     <StatCard
-                        title="CPU загрузка"
-                        value={`${Math.round((stats.totalCPU.used / stats.totalCPU.total) * 100)}%`}
-                        subtitle={`${stats.totalCPU.used} / ${stats.totalCPU.total} vCPU`}
-                        icon={<CPUIcon sx={{ color: '#00C853' }} />}
-                        color="success.main"
+                        title="CPU"
+                        value={`${stats.totalCPU.used}/${stats.totalCPU.total}`}
+                        subtitle="vCPU использовано"
+                        icon={<CPUIcon />}
+                        color="#E30611"
                     />
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
                     <StatCard
-                        title="RAM загрузка"
-                        value={`${Math.round((stats.totalRAM.used / stats.totalRAM.total) * 100)}%`}
-                        subtitle={`${stats.totalRAM.used} / ${stats.totalRAM.total} ГБ`}
-                        icon={<StorageIcon sx={{ color: '#FFB300' }} />}
-                        color="warning.main"
+                        title="RAM"
+                        value={`${stats.totalRAM.used}/${stats.totalRAM.total}`}
+                        subtitle="ГБ использовано"
+                        icon={<StorageIcon />}
+                        color="#FFB300"
                     />
                 </Grid>
+            </Grid>
 
-                {/* График загрузки ресурсов */}
+            <Grid container spacing={3}>
+                {/* График загрузки */}
                 <Grid item xs={12} md={8}>
-                    <Card>
-                        <CardContent sx={{ p: 3 }}>
-                            <Typography variant="h6" sx={{ mb: 3 }}>
-                                Загрузка ресурсов (24ч)
-                            </Typography>
-                            <Box sx={{ height: 300 }}>
-                                <ResponsiveContainer>
-                                    <AreaChart data={stats.resourceHistory}>
+                    <Card sx={{ height: 420 }}>
+                        <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                            <Typography variant="h6" sx={{ mb: 2 }}>Загрузка за 24 часа</Typography>
+                            <Box sx={{ flex: 1 }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={mockLoadHistory}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                                        <XAxis dataKey="time" stroke="#666" fontSize={12} />
+                                        <XAxis dataKey="time" stroke="#666" fontSize={11} />
                                         <YAxis stroke="#666" fontSize={12} unit="%" />
                                         <Tooltip
                                             contentStyle={{
@@ -93,30 +92,9 @@ export default function AdminDashboard() {
                                                 color: '#fff',
                                             }}
                                         />
-                                        <Area
-                                            type="monotone"
-                                            dataKey="cpu"
-                                            name="CPU"
-                                            stroke="#E30611"
-                                            fill="#E3061133"
-                                            strokeWidth={2}
-                                        />
-                                        <Area
-                                            type="monotone"
-                                            dataKey="ram"
-                                            name="RAM"
-                                            stroke="#2979FF"
-                                            fill="#2979FF33"
-                                            strokeWidth={2}
-                                        />
-                                        <Area
-                                            type="monotone"
-                                            dataKey="disk"
-                                            name="Диск"
-                                            stroke="#00C853"
-                                            fill="#00C85333"
-                                            strokeWidth={2}
-                                        />
+                                        <Area type="monotone" dataKey="cpu" name="CPU %" stroke="#E30611" fill="rgba(227,6,17,0.15)" strokeWidth={2} />
+                                        <Area type="monotone" dataKey="ram" name="RAM %" stroke="#2979FF" fill="rgba(41,121,255,0.15)" strokeWidth={2} />
+                                        <Area type="monotone" dataKey="disk" name="Disk %" stroke="#00C853" fill="rgba(0,200,83,0.15)" strokeWidth={2} />
                                     </AreaChart>
                                 </ResponsiveContainer>
                             </Box>
@@ -124,27 +102,25 @@ export default function AdminDashboard() {
                     </Card>
                 </Grid>
 
-                {/* Распределение CPU по тенантам */}
+                {/* Пирожок */}
                 <Grid item xs={12} md={4}>
-                    <Card sx={{ height: '100%' }}>
-                        <CardContent sx={{ p: 3 }}>
-                            <Typography variant="h6" sx={{ mb: 2 }}>
-                                CPU по тенантам
-                            </Typography>
-                            <Box sx={{ height: 250 }}>
-                                <ResponsiveContainer>
+                    <Card sx={{ height: 420 }}>
+                        <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                            <Typography variant="h6" sx={{ mb: 2 }}>ВМ по тенантам</Typography>
+                            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <ResponsiveContainer width="100%" height={220}>
                                     <PieChart>
                                         <Pie
                                             data={tenantPieData}
                                             cx="50%"
                                             cy="50%"
-                                            innerRadius={50}
                                             outerRadius={80}
-                                            paddingAngle={3}
+                                            innerRadius={45}
                                             dataKey="value"
+                                            paddingAngle={5}
                                         >
-                                            {tenantPieData.map((entry, index) => (
-                                                <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                            {tenantPieData.map((_, i) => (
+                                                <Cell key={i} fill={COLORS[i % COLORS.length]} />
                                             ))}
                                         </Pie>
                                         <Tooltip
@@ -154,31 +130,68 @@ export default function AdminDashboard() {
                                                 borderRadius: 8,
                                                 color: '#fff',
                                             }}
-                                            formatter={(value) => [`${value} vCPU`, 'CPU']}
-                                        />
-                                        <Legend
-                                            wrapperStyle={{ fontSize: '0.75rem' }}
-                                            formatter={(value) => (
-                                                <span style={{ color: '#B0B0C8' }}>{value}</span>
-                                            )}
                                         />
                                     </PieChart>
                                 </ResponsiveContainer>
+                            </Box>
+                            {/* Легенда */}
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 1 }}>
+                                {tenantPieData.map((item, i) => (
+                                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <Box sx={{
+                                            width: 10, height: 10, borderRadius: '50%',
+                                            bgcolor: COLORS[i % COLORS.length],
+                                        }} />
+                                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                            {item.name}: {item.value} ВМ
+                                        </Typography>
+                                    </Box>
+                                ))}
                             </Box>
                         </CardContent>
                     </Card>
                 </Grid>
 
-                {/* Общее использование ресурсов */}
-                <Grid item xs={12}>
+                {/* Ресурсы */}
+                <Grid item xs={12} md={6}>
                     <Card>
                         <CardContent sx={{ p: 3 }}>
-                            <Typography variant="h6" sx={{ mb: 3 }}>
-                                Общее использование ресурсов инфраструктуры
-                            </Typography>
+                            <Typography variant="h6" sx={{ mb: 3 }}>Ресурсы платформы</Typography>
                             <ResourceBar label="CPU" used={stats.totalCPU.used} total={stats.totalCPU.total} unit=" vCPU" />
                             <ResourceBar label="RAM" used={stats.totalRAM.used} total={stats.totalRAM.total} unit=" ГБ" />
-                            <ResourceBar label="Дисковое пространство" used={stats.totalDisk.used} total={stats.totalDisk.total} unit=" ГБ" />
+                            <ResourceBar label="Диск" used={stats.totalDisk.used} total={stats.totalDisk.total} unit=" ГБ" />
+                        </CardContent>
+                    </Card>
+                </Grid>
+
+                {/* Тенанты */}
+                <Grid item xs={12} md={6}>
+                    <Card>
+                        <CardContent sx={{ p: 3 }}>
+                            <Typography variant="h6" sx={{ mb: 2 }}>Тенанты</Typography>
+                            {mockTenants.map((tenant) => (
+                                <Box
+                                    key={tenant.id}
+                                    sx={{
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        py: 1.5, borderBottom: '1px solid rgba(255,255,255,0.06)',
+                                        '&:last-child': { borderBottom: 'none' },
+                                    }}
+                                >
+                                    <Box>
+                                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{tenant.name}</Typography>
+                                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                            {tenant.usage.vms} ВМ · {tenant.usage.cpu} vCPU · {tenant.usage.ram} ГБ RAM
+                                        </Typography>
+                                    </Box>
+                                    <Chip
+                                        label={tenant.status === 'active' ? 'Активен' : 'Заблокирован'}
+                                        size="small"
+                                        color={tenant.status === 'active' ? 'success' : 'error'}
+                                        variant="outlined"
+                                    />
+                                </Box>
+                            ))}
                         </CardContent>
                     </Card>
                 </Grid>
