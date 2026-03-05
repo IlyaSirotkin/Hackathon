@@ -1,4 +1,3 @@
-// src/layouts/ClientLayout.jsx
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -20,9 +19,9 @@ import {
 const DRAWER_WIDTH = 260;
 
 const menuItems = [
-    { text: 'Обзор', icon: <DashboardIcon />, path: '/dashboard' },
-    { text: 'Виртуальные машины', icon: <ComputerIcon />, path: '/vms' },
-    { text: 'Сети', icon: <NetworkIcon />, path: '/networks' },
+    { text: 'Обзор', icon: <DashboardIcon />, path: '/client' },
+    { text: 'Виртуальные машины', icon: <ComputerIcon />, path: '/client/vms' },
+    { text: 'Сети', icon: <NetworkIcon />, path: '/client/networks' },
 ];
 
 export default function ClientLayout() {

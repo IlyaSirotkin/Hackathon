@@ -1,460 +1,467 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext';
 import {
-    Box, Card, CardContent, Typography, Button, Grid, IconButton,
-    Dialog, DialogTitle, DialogContent, DialogActions, TextField,
-    MenuItem, Tooltip, Table, TableBody, TableCell, TableContainer,
-    TableHead, TableRow,
+    Box, Typography, Card, Button, Chip, IconButton, CircularProgress,
+    Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem,
+    Alert, Tooltip, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+    Snackbar, Divider,
 } from '@mui/material';
 import {
     Add as AddIcon,
     PlayArrow as StartIcon,
     Stop as StopIcon,
-    Refresh as RestartIcon,
+    Refresh as RebootIcon,
     Delete as DeleteIcon,
+    Edit as EditIcon,
     Computer as VMIcon,
-    ViewList as ListView,
-    ViewModule as GridView,
+    Circle as CircleIcon,
 } from '@mui/icons-material';
-import { useSnackbar } from 'notistack';
-import VMStatusChip from '../../components/VMStatusChip';
-import { mockVMs, mockTenants } from '../../services/mockData';
+import { vmsAPI } from '../../services/api';
 
 const OS_OPTIONS = [
-    'Ubuntu 22.04',
-    'Ubuntu 24.04',
-    'Debian 12',
-    'CentOS 9',
-    'RHEL 9',
-    'Windows Server 2022',
+    'Ubuntu 22.04', 'Ubuntu 24.04', 'CentOS 9', 'Debian 12', 'Windows Server 2022',
 ];
+const CPU_OPTIONS = [1, 2, 4, 8, 16];
+const RAM_OPTIONS = [1, 2, 4, 8, 16, 32];
+const DISK_OPTIONS = [20, 50, 100, 200, 500];
+
+const statusConfig = {
+    running: { label: 'Работает', color: '#00C853', bg: 'rgba(0,200,83,0.1)' },
+    stopped: { label: 'Остановлена', color: '#9E9E9E', bg: 'rgba(158,158,158,0.1)' },
+    creating: { label: 'Создаётся', color: '#FFB300', bg: 'rgba(255,179,0,0.1)' },
+};
 
 export default function ClientVMs() {
-    const { user } = useAuth();
-    const { enqueueSnackbar } = useSnackbar();
     const [vms, setVms] = useState([]);
-    const [tenant, setTenant] = useState(null);
-    const [openCreate, setOpenCreate] = useState(false);
-    const [openDelete, setOpenDelete] = useState(null);
-    const [gridMode, setGridMode] = useState(false);
-    const [newVM, setNewVM] = useState({
-        name: '',
-        os: 'Ubuntu 22.04',
-        cpu: 1,
-        ram: 1,
-        disk: 20,
-    });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
 
-    useEffect(() => {
-        const t = mockTenants.find((t) => t.id === user.tenantId) || mockTenants[0];
-        setTenant(t);
-        setVms(mockVMs.filter((vm) => vm.tenantId === t.id));
-    }, [user]);
+    // Диалог создания
+    const [createOpen, setCreateOpen] = useState(false);
+    const [newVM, setNewVM] = useState({ name: '', os: 'Ubuntu 22.04', cpu: 2, ram: 4, disk: 50 });
 
-    const handleAction = (vmId, action) => {
-        setVms((prev) =>
-            prev.map((vm) => {
-                if (vm.id !== vmId) return vm;
-                if (action === 'start') return { ...vm, status: 'running' };
-                if (action === 'stop') return { ...vm, status: 'stopped' };
-                if (action === 'restart') return { ...vm, status: 'running' };
-                return vm;
-            })
+    // Диалог редактирования
+    const [editOpen, setEditOpen] = useState(false);
+    const [editVM, setEditVM] = useState(null);
+
+    const loadVMs = () => {
+        setLoading(true);
+        vmsAPI.getAll()
+            .then(setVms)
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(false));
+    };
+
+    useEffect(() => { loadVMs(); }, []);
+
+    // === Действия ===
+    const handleAction = async (id, action) => {
+        try {
+            await vmsAPI.action(id, action);
+            const labels = { start: 'запущена', stop: 'остановлена', reboot: 'перезагружена' };
+            setSuccess(`ВМ ${labels[action]}`);
+            loadVMs();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    const handleDelete = async (id, name) => {
+        if (!window.confirm(`Удалить ВМ "${name}"? Это действие необратимо.`)) return;
+        try {
+            await vmsAPI.delete(id);
+            setSuccess('ВМ удалена');
+            loadVMs();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    // === Создание ===
+    const handleCreate = async () => {
+        try {
+            await vmsAPI.create(newVM);
+            setCreateOpen(false);
+            setNewVM({ name: '', os: 'Ubuntu 22.04', cpu: 2, ram: 4, disk: 50 });
+            setSuccess('ВМ создана');
+            loadVMs();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    // === Редактирование ===
+    const openEdit = (vm) => {
+        setEditVM({ ...vm });
+        setEditOpen(true);
+    };
+
+    const handleEdit = async () => {
+        try {
+            await vmsAPI.update(editVM.id, {
+                name: editVM.name,
+                cpu: editVM.cpu,
+                ram: editVM.ram,
+                disk: editVM.disk,
+                os: editVM.os,
+            });
+            setEditOpen(false);
+            setEditVM(null);
+            setSuccess('ВМ обновлена');
+            loadVMs();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    if (loading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
+                <CircularProgress />
+            </Box>
         );
-        const actionLabels = {
-            start: 'запущена',
-            stop: 'остановлена',
-            restart: 'перезагружена',
-        };
-        enqueueSnackbar(`ВМ ${actionLabels[action]}`, { variant: 'success' });
-    };
+    }
 
-    const handleCreate = () => {
-        if (!newVM.name.trim()) {
-            enqueueSnackbar('Введите имя ВМ', { variant: 'warning' });
-            return;
-        }
-        if (tenant && vms.length >= tenant.quota.maxVMs) {
-            enqueueSnackbar('Достигнут лимит виртуальных машин', { variant: 'error' });
-            return;
-        }
-
-        const vm = {
-            id: 'vm-' + Date.now(),
-            tenantId: tenant?.id,
-            name: newVM.name,
-            status: 'running',
-            os: newVM.os,
-            cpu: newVM.cpu,
-            ram: newVM.ram,
-            disk: newVM.disk,
-            ip: `10.10.1.${20 + vms.length}`,
-            network: `vnet-${tenant?.id}`,
-            createdAt: new Date().toISOString(),
-        };
-
-        setVms((prev) => [...prev, vm]);
-        setOpenCreate(false);
-        setNewVM({ name: '', os: 'Ubuntu 22.04', cpu: 1, ram: 1, disk: 20 });
-        enqueueSnackbar(`ВМ "${vm.name}" создана`, { variant: 'success' });
-    };
-
-    const handleDelete = (vmId) => {
-        setVms((prev) => prev.filter((vm) => vm.id !== vmId));
-        setOpenDelete(null);
-        enqueueSnackbar('ВМ удалена', { variant: 'info' });
-    };
-
-    const ActionButtons = ({ vm }) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-            <Tooltip title="Запустить">
-        <span>
-          <IconButton
-              size="small"
-              color="success"
-              disabled={vm.status === 'running'}
-              onClick={() => handleAction(vm.id, 'start')}
-          >
-            <StartIcon fontSize="small" />
-          </IconButton>
-        </span>
-            </Tooltip>
-            <Tooltip title="Остановить">
-        <span>
-          <IconButton
-              size="small"
-              color="warning"
-              disabled={vm.status === 'stopped'}
-              onClick={() => handleAction(vm.id, 'stop')}
-          >
-            <StopIcon fontSize="small" />
-          </IconButton>
-        </span>
-            </Tooltip>
-            <Tooltip title="Перезагрузить">
-        <span>
-          <IconButton
-              size="small"
-              color="info"
-              disabled={vm.status === 'stopped'}
-              onClick={() => handleAction(vm.id, 'restart')}
-          >
-            <RestartIcon fontSize="small" />
-          </IconButton>
-        </span>
-            </Tooltip>
-            <Tooltip title="Удалить">
-                <IconButton
-                    size="small"
-                    color="error"
-                    onClick={() => setOpenDelete(vm.id)}
-                >
-                    <DeleteIcon fontSize="small" />
-                </IconButton>
-            </Tooltip>
-        </Box>
-    );
+    const runningCount = vms.filter((v) => v.status === 'running').length;
+    const stoppedCount = vms.filter((v) => v.status === 'stopped').length;
 
     return (
         <Box>
-            {/* ===== ЗАГОЛОВОК ===== */}
-            <Box
-                sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    mb: 3,
-                }}
-            >
+            {/* Заголовок */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
                 <Box>
-                    <Typography variant="h5">Виртуальные машины</Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                        {vms.length} из {tenant?.quota.maxVMs || '?'} доступных
+                    <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                        Виртуальные машины
                     </Typography>
+                    <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
+                        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                            Всего: {vms.length}
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <CircleIcon sx={{ fontSize: 8, color: '#00C853' }} />
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                {runningCount} работают
+                            </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <CircleIcon sx={{ fontSize: 8, color: '#9E9E9E' }} />
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                {stoppedCount} остановлены
+                            </Typography>
+                        </Box>
+                    </Box>
                 </Box>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Tooltip title={gridMode ? 'Список' : 'Карточки'}>
-                        <IconButton onClick={() => setGridMode(!gridMode)}>
-                            {gridMode ? <ListView /> : <GridView />}
-                        </IconButton>
-                    </Tooltip>
-                    <Button
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        onClick={() => setOpenCreate(true)}
-                    >
-                        Создать ВМ
-                    </Button>
-                </Box>
+                <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => setCreateOpen(true)}
+                    sx={{ borderRadius: 2, textTransform: 'none', px: 3 }}
+                >
+                    Создать ВМ
+                </Button>
             </Box>
 
-            {/* ===== ПУСТОЕ СОСТОЯНИЕ ===== */}
-            {vms.length === 0 ? (
-                <Card>
-                    <CardContent sx={{ textAlign: 'center', py: 6 }}>
-                        <VMIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-                        <Typography variant="h6" sx={{ mb: 1 }}>
-                            Нет виртуальных машин
-                        </Typography>
-                        <Typography
-                            variant="body2"
-                            sx={{ color: 'text.secondary', mb: 2 }}
-                        >
-                            Создайте первую виртуальную машину
-                        </Typography>
-                        <Button
-                            variant="contained"
-                            startIcon={<AddIcon />}
-                            onClick={() => setOpenCreate(true)}
-                        >
-                            Создать ВМ
-                        </Button>
-                    </CardContent>
-                </Card>
-            ) : gridMode ? (
-                /* ===== РЕЖИМ КАРТОЧЕК ===== */
-                <Grid container spacing={2}>
-                    {vms.map((vm) => (
-                        <Grid item xs={12} sm={6} md={4} key={vm.id}>
-                            <Card
-                                sx={{
-                                    '&:hover': {
-                                        borderColor: 'primary.main',
-                                        transition: '0.2s',
-                                    },
-                                    height: '100%',
-                                }}
-                            >
-                                <CardContent sx={{ p: 2.5 }}>
-                                    <Box
+            {/* Ошибки */}
+            {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+            {/* Таблица */}
+            <Card sx={{ borderRadius: 3, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <TableContainer>
+                    <Table>
+                        <TableHead>
+                            <TableRow sx={{ '& th': { fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: 0.5, color: 'text.secondary', borderBottom: '1px solid rgba(255,255,255,0.08)', py: 2 } }}>
+                                <TableCell>Имя</TableCell>
+                                <TableCell>Статус</TableCell>
+                                <TableCell>ОС</TableCell>
+                                <TableCell>CPU</TableCell>
+                                <TableCell>RAM</TableCell>
+                                <TableCell>Диск</TableCell>
+                                <TableCell>IP</TableCell>
+                                <TableCell align="right">Действия</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {vms.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={8} sx={{ textAlign: 'center', py: 8 }}>
+                                        <VMIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
+                                        <Typography variant="body1" sx={{ color: 'text.secondary' }}>
+                                            Нет виртуальных машин
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
+                                            Нажмите "Создать ВМ" чтобы начать
+                                        </Typography>
+                                    </TableCell>
+                                </TableRow>
+                            ) : vms.map((vm) => {
+                                const status = statusConfig[vm.status] || statusConfig.stopped;
+                                return (
+                                    <TableRow
+                                        key={vm.id}
                                         sx={{
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            mb: 2,
+                                            '&:hover': { bgcolor: 'rgba(255,255,255,0.02)' },
+                                            '& td': { borderBottom: '1px solid rgba(255,255,255,0.04)', py: 2 },
                                         }}
                                     >
-                                        <Typography
-                                            variant="subtitle1"
-                                            sx={{ fontWeight: 600 }}
-                                        >
-                                            {vm.name}
-                                        </Typography>
-                                        <VMStatusChip status={vm.status} />
-                                    </Box>
-                                    <Typography
-                                        variant="body2"
-                                        sx={{ color: 'text.secondary', mb: 0.5 }}
-                                    >
-                                        OS: {vm.os}
-                                    </Typography>
-                                    <Typography
-                                        variant="body2"
-                                        sx={{ color: 'text.secondary', mb: 0.5 }}
-                                    >
-                                        {vm.cpu} vCPU · {vm.ram} ГБ RAM · {vm.disk} ГБ
-                                    </Typography>
-                                    <Typography
-                                        variant="body2"
-                                        sx={{ color: 'text.secondary', mb: 2 }}
-                                    >
-                                        IP: {vm.ip}
-                                    </Typography>
-                                    <ActionButtons vm={vm} />
-                                </CardContent>
-                            </Card>
-                        </Grid>
-                    ))}
-                </Grid>
-            ) : (
-                /* ===== РЕЖИМ ТАБЛИЦЫ ===== */
-                <Card>
-                    <TableContainer>
-                        <Table>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell>Имя</TableCell>
-                                    <TableCell>Статус</TableCell>
-                                    <TableCell>ОС</TableCell>
-                                    <TableCell>Ресурсы</TableCell>
-                                    <TableCell>IP</TableCell>
-                                    <TableCell align="right">Действия</TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {vms.map((vm) => (
-                                    <TableRow key={vm.id} hover>
+                                        {/* Имя */}
                                         <TableCell>
-                                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                                {vm.name}
-                                            </Typography>
-                                            <Typography
-                                                variant="caption"
-                                                sx={{ color: 'text.secondary' }}
-                                            >
-                                                {vm.id}
-                                            </Typography>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                                <Box sx={{
+                                                    width: 36, height: 36, borderRadius: 2,
+                                                    bgcolor: 'rgba(227,6,17,0.1)',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                }}>
+                                                    <VMIcon sx={{ fontSize: 18, color: '#E30611' }} />
+                                                </Box>
+                                                <Box>
+                                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{vm.name}</Typography>
+                                                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                                        {vm.id}
+                                                    </Typography>
+                                                </Box>
+                                            </Box>
                                         </TableCell>
+
+                                        {/* Статус */}
                                         <TableCell>
-                                            <VMStatusChip status={vm.status} />
+                                            <Chip
+                                                icon={<CircleIcon sx={{ fontSize: '8px !important' }} />}
+                                                label={status.label}
+                                                size="small"
+                                                sx={{
+                                                    bgcolor: status.bg,
+                                                    color: status.color,
+                                                    border: 'none',
+                                                    fontWeight: 600,
+                                                    fontSize: '0.75rem',
+                                                    '& .MuiChip-icon': { color: status.color },
+                                                }}
+                                            />
                                         </TableCell>
-                                        <TableCell>{vm.os}</TableCell>
+
+                                        {/* ОС */}
                                         <TableCell>
-                                            <Typography variant="body2">
-                                                {vm.cpu} vCPU · {vm.ram} ГБ · {vm.disk} ГБ
+                                            <Typography variant="body2">{vm.os}</Typography>
+                                        </TableCell>
+
+                                        {/* CPU */}
+                                        <TableCell>
+                                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{vm.cpu}</Typography>
+                                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>vCPU</Typography>
+                                        </TableCell>
+
+                                        {/* RAM */}
+                                        <TableCell>
+                                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{vm.ram}</Typography>
+                                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>GB</Typography>
+                                        </TableCell>
+
+                                        {/* Диск */}
+                                        <TableCell>
+                                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{vm.disk}</Typography>
+                                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>GB</Typography>
+                                        </TableCell>
+
+                                        {/* IP */}
+                                        <TableCell>
+                                            <Typography variant="body2" sx={{
+                                                fontFamily: 'monospace', bgcolor: 'rgba(255,255,255,0.05)',
+                                                px: 1, py: 0.3, borderRadius: 1, display: 'inline-block',
+                                            }}>
+                                                {vm.ip || '—'}
                                             </Typography>
                                         </TableCell>
-                                        <TableCell>
-                                            <Typography
-                                                variant="body2"
-                                                sx={{ fontFamily: 'monospace' }}
-                                            >
-                                                {vm.ip}
-                                            </Typography>
-                                        </TableCell>
+
+                                        {/* Действия */}
                                         <TableCell align="right">
-                                            <ActionButtons vm={vm} />
+                                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
+                                                {vm.status === 'stopped' && (
+                                                    <Tooltip title="Запустить">
+                                                        <IconButton size="small" onClick={() => handleAction(vm.id, 'start')}
+                                                                    sx={{ color: '#00C853', '&:hover': { bgcolor: 'rgba(0,200,83,0.1)' } }}>
+                                                            <StartIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                )}
+                                                {vm.status === 'running' && (
+                                                    <>
+                                                        <Tooltip title="Остановить">
+                                                            <IconButton size="small" onClick={() => handleAction(vm.id, 'stop')}
+                                                                        sx={{ color: '#FFB300', '&:hover': { bgcolor: 'rgba(255,179,0,0.1)' } }}>
+                                                                <StopIcon fontSize="small" />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                        <Tooltip title="Перезагрузить">
+                                                            <IconButton size="small" onClick={() => handleAction(vm.id, 'reboot')}
+                                                                        sx={{ color: '#2979FF', '&:hover': { bgcolor: 'rgba(41,121,255,0.1)' } }}>
+                                                                <RebootIcon fontSize="small" />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    </>
+                                                )}
+                                                <Tooltip title={vm.status === 'running' ? 'Остановите для редактирования' : 'Редактировать'}>
+                          <span>
+                            <IconButton size="small" onClick={() => openEdit(vm)}
+                                        disabled={vm.status === 'running'}
+                                        sx={{ color: '#AB47BC', '&:hover': { bgcolor: 'rgba(171,71,188,0.1)' } }}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                                                </Tooltip>
+                                                <Tooltip title="Удалить">
+                                                    <IconButton size="small" onClick={() => handleDelete(vm.id, vm.name)}
+                                                                sx={{ color: '#E30611', '&:hover': { bgcolor: 'rgba(227,6,17,0.1)' } }}>
+                                                        <DeleteIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            </Box>
                                         </TableCell>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
-                </Card>
-            )}
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                </TableContainer>
+            </Card>
 
-            {/* ===== ДИАЛОГ СОЗДАНИЯ ВМ ===== */}
-            <Dialog
-                open={openCreate}
-                onClose={() => setOpenCreate(false)}
-                maxWidth="sm"
-                fullWidth
-            >
-                <DialogTitle>Создать виртуальную машину</DialogTitle>
-                <DialogContent>
-                    <Box
-                        sx={{
-                            pt: 1,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 2.5,
-                        }}
+            {/* ===== Диалог СОЗДАНИЯ ===== */}
+            <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth
+                    PaperProps={{ sx: { borderRadius: 3, bgcolor: '#1A1A2E' } }}>
+                <DialogTitle sx={{ fontWeight: 700 }}>Создать виртуальную машину</DialogTitle>
+                <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)' }} />
+                <DialogContent sx={{ pt: 3 }}>
+                    <TextField
+                        fullWidth label="Имя ВМ" value={newVM.name}
+                        onChange={(e) => setNewVM({ ...newVM, name: e.target.value })}
+                        placeholder="например: web-server-01"
+                        sx={{ mb: 2.5 }}
+                    />
+                    <TextField
+                        fullWidth select label="Операционная система" value={newVM.os}
+                        onChange={(e) => setNewVM({ ...newVM, os: e.target.value })}
+                        sx={{ mb: 2.5 }}
                     >
+                        {OS_OPTIONS.map((os) => <MenuItem key={os} value={os}>{os}</MenuItem>)}
+                    </TextField>
+
+                    <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'text.secondary' }}>
+                        Ресурсы
+                    </Typography>
+
+                    <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
                         <TextField
-                            label="Имя виртуальной машины"
-                            value={newVM.name}
-                            onChange={(e) => setNewVM({ ...newVM, name: e.target.value })}
-                            fullWidth
-                            placeholder="например: web-server-01"
-                        />
-                        <TextField
-                            label="Операционная система"
-                            value={newVM.os}
-                            onChange={(e) => setNewVM({ ...newVM, os: e.target.value })}
-                            select
-                            fullWidth
+                            fullWidth select label="CPU (vCPU)" value={newVM.cpu}
+                            onChange={(e) => setNewVM({ ...newVM, cpu: Number(e.target.value) })}
                         >
-                            {OS_OPTIONS.map((os) => (
-                                <MenuItem key={os} value={os}>
-                                    {os}
-                                </MenuItem>
-                            ))}
+                            {CPU_OPTIONS.map((v) => <MenuItem key={v} value={v}>{v} vCPU</MenuItem>)}
                         </TextField>
-                        <Grid container spacing={2}>
-                            <Grid item xs={4}>
-                                <TextField
-                                    label="CPU (vCPU)"
-                                    type="number"
-                                    value={newVM.cpu}
-                                    onChange={(e) =>
-                                        setNewVM({
-                                            ...newVM,
-                                            cpu: Math.max(1, parseInt(e.target.value) || 1),
-                                        })
-                                    }
-                                    fullWidth
-                                    inputProps={{ min: 1, max: 16 }}
-                                />
-                            </Grid>
-                            <Grid item xs={4}>
-                                <TextField
-                                    label="RAM (ГБ)"
-                                    type="number"
-                                    value={newVM.ram}
-                                    onChange={(e) =>
-                                        setNewVM({
-                                            ...newVM,
-                                            ram: Math.max(1, parseInt(e.target.value) || 1),
-                                        })
-                                    }
-                                    fullWidth
-                                    inputProps={{ min: 1, max: 64 }}
-                                />
-                            </Grid>
-                            <Grid item xs={4}>
-                                <TextField
-                                    label="Диск (ГБ)"
-                                    type="number"
-                                    value={newVM.disk}
-                                    onChange={(e) =>
-                                        setNewVM({
-                                            ...newVM,
-                                            disk: Math.max(10, parseInt(e.target.value) || 10),
-                                        })
-                                    }
-                                    fullWidth
-                                    inputProps={{ min: 10, max: 500 }}
-                                />
-                            </Grid>
-                        </Grid>
-                        <Card sx={{ bgcolor: 'rgba(255,255,255,0.03)' }}>
-                            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                                <Typography
-                                    variant="body2"
-                                    sx={{ color: 'text.secondary', mb: 1 }}
-                                >
-                                    Конфигурация:
-                                </Typography>
-                                <Typography variant="body2">
-                                    {newVM.os} · {newVM.cpu} vCPU · {newVM.ram} ГБ RAM ·{' '}
-                                    {newVM.disk} ГБ SSD
-                                </Typography>
-                            </CardContent>
-                        </Card>
+                        <TextField
+                            fullWidth select label="RAM (ГБ)" value={newVM.ram}
+                            onChange={(e) => setNewVM({ ...newVM, ram: Number(e.target.value) })}
+                        >
+                            {RAM_OPTIONS.map((v) => <MenuItem key={v} value={v}>{v} ГБ</MenuItem>)}
+                        </TextField>
+                        <TextField
+                            fullWidth select label="Диск (ГБ)" value={newVM.disk}
+                            onChange={(e) => setNewVM({ ...newVM, disk: Number(e.target.value) })}
+                        >
+                            {DISK_OPTIONS.map((v) => <MenuItem key={v} value={v}>{v} ГБ</MenuItem>)}
+                        </TextField>
+                    </Box>
+
+                    {/* Превью */}
+                    <Box sx={{ bgcolor: 'rgba(255,255,255,0.03)', borderRadius: 2, p: 2, mt: 1 }}>
+                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                            Конфигурация: {newVM.cpu} vCPU · {newVM.ram} ГБ RAM · {newVM.disk} ГБ диск · {newVM.os}
+                        </Typography>
                     </Box>
                 </DialogContent>
-                <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button onClick={() => setOpenCreate(false)}>Отмена</Button>
-                    <Button variant="contained" onClick={handleCreate}>
+                <DialogActions sx={{ p: 2.5 }}>
+                    <Button onClick={() => setCreateOpen(false)} sx={{ textTransform: 'none' }}>Отмена</Button>
+                    <Button variant="contained" onClick={handleCreate} disabled={!newVM.name}
+                            sx={{ textTransform: 'none', px: 3 }}>
                         Создать
                     </Button>
                 </DialogActions>
             </Dialog>
 
-            {/* ===== ДИАЛОГ УДАЛЕНИЯ ===== */}
-            <Dialog
-                open={!!openDelete}
-                onClose={() => setOpenDelete(null)}
-                maxWidth="xs"
-                fullWidth
-            >
-                <DialogTitle>Удалить виртуальную машину?</DialogTitle>
-                <DialogContent>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                        Это действие необратимо. Все данные виртуальной машины будут
-                        потеряны.
-                    </Typography>
-                </DialogContent>
-                <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button onClick={() => setOpenDelete(null)}>Отмена</Button>
-                    <Button
-                        variant="contained"
-                        color="error"
-                        onClick={() => handleDelete(openDelete)}
-                    >
-                        Удалить
+            {/* ===== Диалог РЕДАКТИРОВАНИЯ ===== */}
+            <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="sm" fullWidth
+                    PaperProps={{ sx: { borderRadius: 3, bgcolor: '#1A1A2E' } }}>
+                <DialogTitle sx={{ fontWeight: 700 }}>
+                    Редактировать ВМ
+                </DialogTitle>
+                <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)' }} />
+                {editVM && (
+                    <DialogContent sx={{ pt: 3 }}>
+                        <Alert severity="info" sx={{ mb: 2.5 }}>
+                            Ресурсы можно менять только у остановленной ВМ
+                        </Alert>
+
+                        <TextField
+                            fullWidth label="Имя ВМ" value={editVM.name}
+                            onChange={(e) => setEditVM({ ...editVM, name: e.target.value })}
+                            sx={{ mb: 2.5 }}
+                        />
+                        <TextField
+                            fullWidth select label="Операционная система" value={editVM.os}
+                            onChange={(e) => setEditVM({ ...editVM, os: e.target.value })}
+                            sx={{ mb: 2.5 }}
+                        >
+                            {OS_OPTIONS.map((os) => <MenuItem key={os} value={os}>{os}</MenuItem>)}
+                        </TextField>
+
+                        <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'text.secondary' }}>
+                            Ресурсы
+                        </Typography>
+
+                        <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                            <TextField
+                                fullWidth select label="CPU (vCPU)" value={editVM.cpu}
+                                onChange={(e) => setEditVM({ ...editVM, cpu: Number(e.target.value) })}
+                            >
+                                {CPU_OPTIONS.map((v) => <MenuItem key={v} value={v}>{v} vCPU</MenuItem>)}
+                            </TextField>
+                            <TextField
+                                fullWidth select label="RAM (ГБ)" value={editVM.ram}
+                                onChange={(e) => setEditVM({ ...editVM, ram: Number(e.target.value) })}
+                            >
+                                {RAM_OPTIONS.map((v) => <MenuItem key={v} value={v}>{v} ГБ</MenuItem>)}
+                            </TextField>
+                            <TextField
+                                fullWidth select label="Диск (ГБ)" value={editVM.disk}
+                                onChange={(e) => setEditVM({ ...editVM, disk: Number(e.target.value) })}
+                            >
+                                {DISK_OPTIONS.map((v) => <MenuItem key={v} value={v}>{v} ГБ</MenuItem>)}
+                            </TextField>
+                        </Box>
+
+                        {/* Превью изменений */}
+                        <Box sx={{ bgcolor: 'rgba(255,255,255,0.03)', borderRadius: 2, p: 2, mt: 1 }}>
+                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                Новая конфигурация: {editVM.cpu} vCPU · {editVM.ram} ГБ RAM · {editVM.disk} ГБ диск · {editVM.os}
+                            </Typography>
+                        </Box>
+                    </DialogContent>
+                )}
+                <DialogActions sx={{ p: 2.5 }}>
+                    <Button onClick={() => setEditOpen(false)} sx={{ textTransform: 'none' }}>Отмена</Button>
+                    <Button variant="contained" onClick={handleEdit} disabled={!editVM?.name}
+                            sx={{ textTransform: 'none', px: 3 }}>
+                        Сохранить
                     </Button>
                 </DialogActions>
             </Dialog>
+
+            {/* Уведомление об успехе */}
+            <Snackbar
+                open={!!success}
+                autoHideDuration={3000}
+                onClose={() => setSuccess('')}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            >
+                <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert>
+            </Snackbar>
         </Box>
     );
 }

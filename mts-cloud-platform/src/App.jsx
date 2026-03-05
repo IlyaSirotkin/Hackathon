@@ -17,34 +17,12 @@ import AdminTenants from './pages/admin/AdminTenants';
 import AdminVMs from './pages/admin/AdminVMs';
 import AdminResources from './pages/admin/AdminResources';
 
-function ProtectedRoute({ children, requiredRole }) {
-    const { user, loading } = useAuth();
+export default function App() {
+    const { user, loading } = useAuth();  // ← внутри компонента!
 
     if (loading) {
         return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-                <CircularProgress />
-            </Box>
-        );
-    }
-
-    if (!user) {
-        return <Navigate to="/login" />;
-    }
-
-    if (requiredRole && user.role !== requiredRole) {
-        return <Navigate to={user.role === 'admin' ? '/admin' : '/dashboard'} />;
-    }
-
-    return children;
-}
-
-function App() {
-    const { user, loading } = useAuth();
-
-    if (loading) {
-        return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', bgcolor: 'background.default' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
                 <CircularProgress />
             </Box>
         );
@@ -52,26 +30,17 @@ function App() {
 
     return (
         <Routes>
-            <Route path="/login" element={user ? <Navigate to={user.role === 'admin' ? '/admin' : '/dashboard'} /> : <LoginPage />} />
+            <Route path="/login" element={!user ? <LoginPage /> : <Navigate to={user.role === 'admin' ? '/admin' : '/client'} />} />
 
             {/* Client Routes */}
-            <Route path="/" element={
-                <ProtectedRoute requiredRole="client">
-                    <ClientLayout />
-                </ProtectedRoute>
-            }>
-                <Route index element={<Navigate to="/dashboard" />} />
-                <Route path="dashboard" element={<ClientDashboard />} />
+            <Route path="/client" element={user?.role === 'client' ? <ClientLayout /> : <Navigate to="/login" />}>
+                <Route index element={<ClientDashboard />} />
                 <Route path="vms" element={<ClientVMs />} />
                 <Route path="networks" element={<ClientNetworks />} />
             </Route>
 
             {/* Admin Routes */}
-            <Route path="/admin" element={
-                <ProtectedRoute requiredRole="admin">
-                    <AdminLayout />
-                </ProtectedRoute>
-            }>
+            <Route path="/admin" element={user?.role === 'admin' ? <AdminLayout /> : <Navigate to="/login" />}>
                 <Route index element={<AdminDashboard />} />
                 <Route path="tenants" element={<AdminTenants />} />
                 <Route path="vms" element={<AdminVMs />} />
@@ -82,5 +51,3 @@ function App() {
         </Routes>
     );
 }
-
-export default App;

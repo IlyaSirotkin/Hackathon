@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Grid, Card, CardContent, Typography, Box, Chip } from '@mui/material';
+import { useState, useEffect } from 'react';
+import { Grid, Card, CardContent, Typography, Box, Chip, CircularProgress } from '@mui/material';
 import {
     People as PeopleIcon,
     Computer as VMIcon,
@@ -12,19 +12,41 @@ import {
 } from 'recharts';
 import StatCard from '../../components/StatCard';
 import ResourceBar from '../../components/ResourceBar';
-import { mockDashboardStats, mockTenants, mockLoadHistory } from '../../services/mockData';
+import { statsAPI, tenantsAPI } from '../../services/api';
+import { mockLoadHistory } from '../../services/mockData';
 
 const COLORS = ['#E30611', '#2979FF', '#00C853', '#FFB300', '#AB47BC'];
 
 export default function AdminDashboard() {
-    const [stats] = useState(mockDashboardStats);
+    const [stats, setStats] = useState(null);
+    const [tenants, setTenants] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-    const tenantPieData = mockTenants
+    useEffect(() => {
+        Promise.all([statsAPI.get(), tenantsAPI.getAll()])
+            .then(([statsData, tenantsData]) => {
+                setStats(statsData);
+                setTenants(tenantsData);
+            })
+            .catch(console.error)
+            .finally(() => setLoading(false));
+    }, []);
+
+    if (loading || !stats) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
+                <CircularProgress />
+            </Box>
+        );
+    }
+
+    const tenantPieData = tenants
         .filter((t) => t.status === 'active')
         .map((t) => ({
             name: t.name,
             value: t.usage.vms,
-        }));
+        }))
+        .filter((t) => t.value > 0);
 
     return (
         <Box>
@@ -34,47 +56,26 @@ export default function AdminDashboard() {
             </Typography>
 
             <Grid container spacing={3} sx={{ mb: 3 }}>
-                <Grid item xs={12} sm={6} md={3}>
-                    <StatCard
-                        title="Тенанты"
-                        value={stats.totalTenants}
-                        subtitle={`${stats.activeTenants} активных`}
-                        icon={<PeopleIcon />}
-                        color="#2979FF"
-                    />
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard title="Тенанты" value={stats.totalTenants}
+                              subtitle={`${stats.activeTenants} активных`} icon={<PeopleIcon />} color="#2979FF" />
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                    <StatCard
-                        title="Виртуальные машины"
-                        value={stats.totalVMs}
-                        subtitle={`${stats.runningVMs} работают`}
-                        icon={<VMIcon />}
-                        color="#00C853"
-                    />
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard title="Виртуальные машины" value={stats.totalVMs}
+                              subtitle={`${stats.runningVMs} работают`} icon={<VMIcon />} color="#00C853" />
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                    <StatCard
-                        title="CPU"
-                        value={`${stats.totalCPU.used}/${stats.totalCPU.total}`}
-                        subtitle="vCPU использовано"
-                        icon={<CPUIcon />}
-                        color="#E30611"
-                    />
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard title="CPU" value={`${stats.totalCPU.used}/${stats.totalCPU.total}`}
+                              subtitle="vCPU использовано" icon={<CPUIcon />} color="#E30611" />
                 </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                    <StatCard
-                        title="RAM"
-                        value={`${stats.totalRAM.used}/${stats.totalRAM.total}`}
-                        subtitle="ГБ использовано"
-                        icon={<StorageIcon />}
-                        color="#FFB300"
-                    />
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <StatCard title="RAM" value={`${stats.totalRAM.used}/${stats.totalRAM.total}`}
+                              subtitle="ГБ использовано" icon={<StorageIcon />} color="#FFB300" />
                 </Grid>
             </Grid>
 
             <Grid container spacing={3}>
-                {/* График загрузки */}
-                <Grid item xs={12} md={8}>
+                <Grid size={{ xs: 12,  md: 8 }}>
                     <Card sx={{ height: 420 }}>
                         <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
                             <Typography variant="h6" sx={{ mb: 2 }}>Загрузка за 24 часа</Typography>
@@ -84,14 +85,10 @@ export default function AdminDashboard() {
                                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                                         <XAxis dataKey="time" stroke="#666" fontSize={11} />
                                         <YAxis stroke="#666" fontSize={12} unit="%" />
-                                        <Tooltip
-                                            contentStyle={{
-                                                backgroundColor: '#1A1A2E',
-                                                border: '1px solid rgba(255,255,255,0.1)',
-                                                borderRadius: 8,
-                                                color: '#fff',
-                                            }}
-                                        />
+                                        <Tooltip contentStyle={{
+                                            backgroundColor: '#1A1A2E', border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: 8, color: '#fff',
+                                        }} />
                                         <Area type="monotone" dataKey="cpu" name="CPU %" stroke="#E30611" fill="rgba(227,6,17,0.15)" strokeWidth={2} />
                                         <Area type="monotone" dataKey="ram" name="RAM %" stroke="#2979FF" fill="rgba(41,121,255,0.15)" strokeWidth={2} />
                                         <Area type="monotone" dataKey="disk" name="Disk %" stroke="#00C853" fill="rgba(0,200,83,0.15)" strokeWidth={2} />
@@ -102,46 +99,30 @@ export default function AdminDashboard() {
                     </Card>
                 </Grid>
 
-                {/* Пирожок */}
-                <Grid item xs={12} md={4}>
+                <Grid size={{ xs: 12, md: 4 }}>
                     <Card sx={{ height: 420 }}>
                         <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
                             <Typography variant="h6" sx={{ mb: 2 }}>ВМ по тенантам</Typography>
                             <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <ResponsiveContainer width="100%" height={220}>
                                     <PieChart>
-                                        <Pie
-                                            data={tenantPieData}
-                                            cx="50%"
-                                            cy="50%"
-                                            outerRadius={80}
-                                            innerRadius={45}
-                                            dataKey="value"
-                                            paddingAngle={5}
-                                        >
+                                        <Pie data={tenantPieData} cx="50%" cy="50%" outerRadius={80} innerRadius={45}
+                                             dataKey="value" paddingAngle={5}>
                                             {tenantPieData.map((_, i) => (
                                                 <Cell key={i} fill={COLORS[i % COLORS.length]} />
                                             ))}
                                         </Pie>
-                                        <Tooltip
-                                            contentStyle={{
-                                                backgroundColor: '#1A1A2E',
-                                                border: '1px solid rgba(255,255,255,0.1)',
-                                                borderRadius: 8,
-                                                color: '#fff',
-                                            }}
-                                        />
+                                        <Tooltip contentStyle={{
+                                            backgroundColor: '#1A1A2E', border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: 8, color: '#fff',
+                                        }} />
                                     </PieChart>
                                 </ResponsiveContainer>
                             </Box>
-                            {/* Легенда */}
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 1 }}>
                                 {tenantPieData.map((item, i) => (
                                     <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        <Box sx={{
-                                            width: 10, height: 10, borderRadius: '50%',
-                                            bgcolor: COLORS[i % COLORS.length],
-                                        }} />
+                                        <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: COLORS[i % COLORS.length] }} />
                                         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                                             {item.name}: {item.value} ВМ
                                         </Typography>
@@ -152,8 +133,7 @@ export default function AdminDashboard() {
                     </Card>
                 </Grid>
 
-                {/* Ресурсы */}
-                <Grid item xs={12} md={6}>
+                <Grid size={{ xs: 12, md: 6 }}>
                     <Card>
                         <CardContent sx={{ p: 3 }}>
                             <Typography variant="h6" sx={{ mb: 3 }}>Ресурсы платформы</Typography>
@@ -164,20 +144,16 @@ export default function AdminDashboard() {
                     </Card>
                 </Grid>
 
-                {/* Тенанты */}
-                <Grid item xs={12} md={6}>
+                <Grid size={{ xs: 12, md: 6 }}>
                     <Card>
                         <CardContent sx={{ p: 3 }}>
                             <Typography variant="h6" sx={{ mb: 2 }}>Тенанты</Typography>
-                            {mockTenants.map((tenant) => (
-                                <Box
-                                    key={tenant.id}
-                                    sx={{
-                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                        py: 1.5, borderBottom: '1px solid rgba(255,255,255,0.06)',
-                                        '&:last-child': { borderBottom: 'none' },
-                                    }}
-                                >
+                            {tenants.map((tenant) => (
+                                <Box key={tenant.id} sx={{
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    py: 1.5, borderBottom: '1px solid rgba(255,255,255,0.06)',
+                                    '&:last-child': { borderBottom: 'none' },
+                                }}>
                                     <Box>
                                         <Typography variant="body2" sx={{ fontWeight: 600 }}>{tenant.name}</Typography>
                                         <Typography variant="caption" sx={{ color: 'text.secondary' }}>

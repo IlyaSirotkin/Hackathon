@@ -1,61 +1,84 @@
-const API_BASE = 'http://localhost:8080/api';
+const API_URL = '/api';
 
+// Базовый fetch с токеном
 async function request(endpoint, options = {}) {
     const token = localStorage.getItem('token');
 
     const config = {
+        ...options,
         headers: {
             'Content-Type': 'application/json',
             ...(token && { Authorization: `Bearer ${token}` }),
             ...options.headers,
         },
-        ...options,
     };
 
-    try {
-        const response = await fetch(`${API_BASE}${endpoint}`, config);
+    const response = await fetch(`${API_URL}${endpoint}`, config);
 
-        if (response.status === 401) {
+    // Если забанен или токен невалидный
+    if (response.status === 401 || response.status === 403) {
+        const data = await response.json();
+
+        // Если забанен — разлогиниваем
+        if (response.status === 403) {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             window.location.href = '/login';
-            return;
         }
 
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({ message: 'Ошибка сервера' }));
-            throw new Error(error.message || `HTTP ${response.status}`);
-        }
-
-        return await response.json();
-    } catch (error) {
-        console.error(`API Error [${endpoint}]:`, error);
-        throw error;
+        throw new Error(data.error || 'Доступ запрещён');
     }
+
+    if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Ошибка сервера');
+    }
+
+    return response.json();
 }
 
-// ============ AUTH ============
+// ===== AUTH =====
 export const authAPI = {
-    login: (credentials) =>
+    login: (email, password) =>
         request('/auth/login', {
             method: 'POST',
-            body: JSON.stringify(credentials),
-        }),
-
-    register: (data) =>
-        request('/auth/register', {
-            method: 'POST',
-            body: JSON.stringify(data),
+            body: JSON.stringify({ email, password }),
         }),
 
     me: () => request('/auth/me'),
 };
 
-// ============ VMs (Client) ============
-export const vmAPI = {
-    getAll: () => request('/vms'),
+// ===== TENANTS =====
+export const tenantsAPI = {
+    getAll: () => request('/tenants'),
 
-    getById: (id) => request(`/vms/${id}`),
+    create: (data) =>
+        request('/tenants', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
+
+    update: (id, data) =>
+        request(`/tenants/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        }),
+
+    setStatus: (id, status) =>
+        request(`/tenants/${id}/status`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status }),
+        }),
+
+    delete: (id) =>
+        request(`/tenants/${id}`, {
+            method: 'DELETE',
+        }),
+};
+
+// ===== VMs =====
+export const vmsAPI = {
+    getAll: () => request('/vms'),
 
     create: (data) =>
         request('/vms', {
@@ -63,77 +86,24 @@ export const vmAPI = {
             body: JSON.stringify(data),
         }),
 
+    action: (id, action) =>
+        request(`/vms/${id}/action`, {
+            method: 'PATCH',
+            body: JSON.stringify({ action }),
+        }),
+
     delete: (id) =>
         request(`/vms/${id}`, {
             method: 'DELETE',
         }),
-
-    start: (id) =>
-        request(`/vms/${id}/start`, {
-            method: 'POST',
-        }),
-
-    stop: (id) =>
-        request(`/vms/${id}/stop`, {
-            method: 'POST',
-        }),
-
-    restart: (id) =>
-        request(`/vms/${id}/restart`, {
-            method: 'POST',
-        }),
 };
 
-// ============ QUOTAS (Client) ============
-export const quotaAPI = {
-    getMy: () => request('/quotas/my'),
+// ===== NETWORKS =====
+export const networksAPI = {
+    getAll: () => request('/networks'),
 };
 
-// ============ ADMIN: Tenants ============
-export const adminTenantsAPI = {
-    getAll: () => request('/admin/tenants'),
-
-    getById: (id) => request(`/admin/tenants/${id}`),
-
-    create: (data) =>
-        request('/admin/tenants', {
-            method: 'POST',
-            body: JSON.stringify(data),
-        }),
-
-    update: (id, data) =>
-        request(`/admin/tenants/${id}`, {
-            method: 'PUT',
-            body: JSON.stringify(data),
-        }),
-
-    delete: (id) =>
-        request(`/admin/tenants/${id}`, {
-            method: 'DELETE',
-        }),
-
-    setQuota: (id, quota) =>
-        request(`/admin/tenants/${id}/quota`, {
-            method: 'PUT',
-            body: JSON.stringify(quota),
-        }),
-};
-
-// ============ ADMIN: VMs ============
-export const adminVMsAPI = {
-    getAll: () => request('/admin/vms'),
-
-    getByTenant: (tenantId) => request(`/admin/tenants/${tenantId}/vms`),
-};
-
-// ============ ADMIN: Dashboard ============
-export const adminDashboardAPI = {
-    getStats: () => request('/admin/dashboard/stats'),
-
-    getResourceUsage: () => request('/admin/dashboard/resources'),
-};
-
-// ============ NETWORKS ============
-export const networkAPI = {
-    getMyNetworks: () => request('/networks'),
+// ===== STATS =====
+export const statsAPI = {
+    get: () => request('/stats'),
 };
