@@ -113,3 +113,8 @@ export const networksAPI = {
 export const statsAPI = {
     get: () => request('/stats'),
 };
+// ===== METRICS =====
+export const metricsAPI = {
+    getHistory: () => request('/metrics/history'),
+    getCurrent: () => request('/metrics/current'),
+};

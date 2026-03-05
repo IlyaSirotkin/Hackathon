@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
-    Box, Card, CardContent, Typography, Button, Grid, IconButton,
+    Box, Card, CardContent, Typography, Button, IconButton,
     Dialog, DialogTitle, DialogContent, DialogActions, TextField,
     Chip, Table, TableBody, TableCell, TableContainer, TableHead,
-    TableRow, Tooltip, Alert,
+    TableRow, Tooltip, Alert, CircularProgress, Snackbar, Grid, Divider,
 } from '@mui/material';
 import {
     Add as AddIcon,
@@ -13,112 +13,63 @@ import {
     CheckCircle as ActiveIcon,
     Business as BusinessIcon,
 } from '@mui/icons-material';
-import { useSnackbar } from 'notistack';
 import ResourceBar from '../../components/ResourceBar';
-import {
-    getTenants,
-    updateTenantStatus,
-    addTenant,
-    deleteTenant,
-    updateTenant,
-} from '../../services/store';
+import { tenantsAPI } from '../../services/api';
 
 export default function AdminTenants() {
-    const { enqueueSnackbar } = useSnackbar();
-    const [tenants, setTenants] = useState(getTenants());
+    const [tenants, setTenants] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+
     const [openCreate, setOpenCreate] = useState(false);
     const [openEdit, setOpenEdit] = useState(null);
     const [openDelete, setOpenDelete] = useState(null);
     const [openBan, setOpenBan] = useState(null);
+
     const [form, setForm] = useState({
-        name: '',
-        admin: '',
-        maxVMs: 5,
-        maxCPU: 16,
-        maxRAM: 32,
-        maxDisk: 200,
+        name: '', admin: '', maxVMs: 5, maxCPU: 16, maxRAM: 32, maxDisk: 200,
     });
 
-    // Синхронизация локального стейта со store
-    const refreshTenants = () => {
-        setTenants([...getTenants()]);
+    const loadTenants = () => {
+        setLoading(true);
+        tenantsAPI.getAll()
+            .then(setTenants)
+            .catch((err) => setError(err.message))
+            .finally(() => setLoading(false));
     };
 
-    const handleCreate = () => {
+    useEffect(() => { loadTenants(); }, []);
+
+    // === Создание ===
+    const handleCreate = async () => {
         if (!form.name.trim() || !form.admin.trim()) {
-            enqueueSnackbar('Заполните все поля', { variant: 'warning' });
+            setError('Заполните все поля');
             return;
         }
-        const newTenant = {
-            id: 'tenant-' + Date.now(),
-            name: form.name,
-            status: 'active',
-            createdAt: new Date().toISOString().split('T')[0],
-            admin: form.admin,
-            quota: {
+        try {
+            await tenantsAPI.create({
+                name: form.name,
+                admin: form.admin,
                 maxVMs: form.maxVMs,
                 maxCPU: form.maxCPU,
                 maxRAM: form.maxRAM,
                 maxDisk: form.maxDisk,
-            },
-            usage: { vms: 0, cpu: 0, ram: 0, disk: 0 },
-        };
-        addTenant(newTenant);
-        refreshTenants();
-        setOpenCreate(false);
-        setForm({ name: '', admin: '', maxVMs: 5, maxCPU: 16, maxRAM: 32, maxDisk: 200 });
-        enqueueSnackbar(`Тенант "${newTenant.name}" создан`, { variant: 'success' });
-    };
-
-    const handleEdit = () => {
-        updateTenant(openEdit, {
-            name: form.name,
-            admin: form.admin,
-            quota: {
-                maxVMs: form.maxVMs,
-                maxCPU: form.maxCPU,
-                maxRAM: form.maxRAM,
-                maxDisk: form.maxDisk,
-            },
-        });
-        refreshTenants();
-        setOpenEdit(null);
-        enqueueSnackbar('Тенант обновлён', { variant: 'success' });
-    };
-
-    const handleDelete = (id) => {
-        const tenant = tenants.find((t) => t.id === id);
-        deleteTenant(id);
-        refreshTenants();
-        setOpenDelete(null);
-        enqueueSnackbar(`Тенант "${tenant?.name}" удалён`, { variant: 'info' });
-    };
-
-    const handleToggleBan = (id) => {
-        const tenant = tenants.find((t) => t.id === id);
-        const newStatus = tenant.status === 'active' ? 'suspended' : 'active';
-
-        updateTenantStatus(id, newStatus);
-        refreshTenants();
-        setOpenBan(null);
-
-        if (newStatus === 'suspended') {
-            enqueueSnackbar(
-                `Тенант "${tenant.name}" заблокирован. Клиент не сможет войти.`,
-                { variant: 'warning' }
-            );
-        } else {
-            enqueueSnackbar(
-                `Тенант "${tenant.name}" разблокирован.`,
-                { variant: 'success' }
-            );
+            });
+            setOpenCreate(false);
+            setForm({ name: '', admin: '', maxVMs: 5, maxCPU: 16, maxRAM: 32, maxDisk: 200 });
+            setSuccess(`Тенант "${form.name}" создан`);
+            loadTenants();
+        } catch (err) {
+            setError(err.message);
         }
     };
 
+    // === Редактирование ===
     const openEditDialog = (tenant) => {
         setForm({
             name: tenant.name,
-            admin: tenant.admin,
+            admin: tenant.admin || '',
             maxVMs: tenant.quota.maxVMs,
             maxCPU: tenant.quota.maxCPU,
             maxRAM: tenant.quota.maxRAM,
@@ -127,88 +78,138 @@ export default function AdminTenants() {
         setOpenEdit(tenant.id);
     };
 
+    const handleEdit = async () => {
+        try {
+            await tenantsAPI.update(openEdit, {
+                name: form.name,
+                admin: form.admin,
+                maxVMs: form.maxVMs,
+                maxCPU: form.maxCPU,
+                maxRAM: form.maxRAM,
+                maxDisk: form.maxDisk,
+            });
+            setOpenEdit(null);
+            setSuccess('Тенант обновлён');
+            loadTenants();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    // === Блокировка ===
+    const handleToggleBan = async (id) => {
+        const tenant = tenants.find((t) => t.id === id);
+        const newStatus = tenant.status === 'active' ? 'suspended' : 'active';
+        try {
+            await tenantsAPI.setStatus(id, newStatus);
+            setOpenBan(null);
+            setSuccess(
+                newStatus === 'suspended'
+                    ? `Тенант "${tenant.name}" заблокирован`
+                    : `Тенант "${tenant.name}" разблокирован`
+            );
+            loadTenants();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    // === Удаление ===
+    const handleDelete = async (id) => {
+        const tenant = tenants.find((t) => t.id === id);
+        try {
+            await tenantsAPI.delete(id);
+            setOpenDelete(null);
+            setSuccess(`Тенант "${tenant?.name}" удалён`);
+            loadTenants();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
+    if (loading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
+                <CircularProgress />
+            </Box>
+        );
+    }
+
     const TenantForm = () => (
         <Box sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
             <TextField
-                label="Название организации"
-                value={form.name}
+                label="Название организации" value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 fullWidth
             />
             <TextField
-                label="Email администратора"
-                value={form.admin}
+                label="Email администратора" value={form.admin}
                 onChange={(e) => setForm({ ...form, admin: e.target.value })}
                 fullWidth
             />
-            <Typography variant="subtitle2" sx={{ mt: 1 }}>Квоты ресурсов</Typography>
-            <Grid container spacing={2}>
-                <Grid item xs={6}>
-                    <TextField
-                        label="Макс. ВМ"
-                        type="number"
-                        value={form.maxVMs}
-                        onChange={(e) => setForm({ ...form, maxVMs: Math.max(1, parseInt(e.target.value) || 1) })}
-                        fullWidth
-                        inputProps={{ min: 1 }}
-                    />
-                </Grid>
-                <Grid item xs={6}>
-                    <TextField
-                        label="Макс. CPU (vCPU)"
-                        type="number"
-                        value={form.maxCPU}
-                        onChange={(e) => setForm({ ...form, maxCPU: Math.max(1, parseInt(e.target.value) || 1) })}
-                        fullWidth
-                        inputProps={{ min: 1 }}
-                    />
-                </Grid>
-                <Grid item xs={6}>
-                    <TextField
-                        label="Макс. RAM (ГБ)"
-                        type="number"
-                        value={form.maxRAM}
-                        onChange={(e) => setForm({ ...form, maxRAM: Math.max(1, parseInt(e.target.value) || 1) })}
-                        fullWidth
-                        inputProps={{ min: 1 }}
-                    />
-                </Grid>
-                <Grid item xs={6}>
-                    <TextField
-                        label="Макс. Диск (ГБ)"
-                        type="number"
-                        value={form.maxDisk}
-                        onChange={(e) => setForm({ ...form, maxDisk: Math.max(10, parseInt(e.target.value) || 10) })}
-                        fullWidth
-                        inputProps={{ min: 10 }}
-                    />
-                </Grid>
-            </Grid>
+            <Typography variant="subtitle2" sx={{ mt: 1, color: 'text.secondary' }}>
+                Квоты ресурсов
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField
+                    label="Макс. ВМ" type="number" value={form.maxVMs}
+                    onChange={(e) => setForm({ ...form, maxVMs: Math.max(1, parseInt(e.target.value) || 1) })}
+                    fullWidth inputProps={{ min: 1 }}
+                />
+                <TextField
+                    label="Макс. CPU" type="number" value={form.maxCPU}
+                    onChange={(e) => setForm({ ...form, maxCPU: Math.max(1, parseInt(e.target.value) || 1) })}
+                    fullWidth inputProps={{ min: 1 }}
+                />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField
+                    label="Макс. RAM (ГБ)" type="number" value={form.maxRAM}
+                    onChange={(e) => setForm({ ...form, maxRAM: Math.max(1, parseInt(e.target.value) || 1) })}
+                    fullWidth inputProps={{ min: 1 }}
+                />
+                <TextField
+                    label="Макс. Диск (ГБ)" type="number" value={form.maxDisk}
+                    onChange={(e) => setForm({ ...form, maxDisk: Math.max(10, parseInt(e.target.value) || 10) })}
+                    fullWidth inputProps={{ min: 10 }}
+                />
+            </Box>
         </Box>
     );
 
     return (
         <Box>
+            {/* Заголовок */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                 <Box>
-                    <Typography variant="h5">Управление тенантами</Typography>
+                    <Typography variant="h5" sx={{ fontWeight: 700 }}>Управление тенантами</Typography>
                     <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                         {tenants.length} тенантов · {tenants.filter((t) => t.status === 'active').length} активных · {tenants.filter((t) => t.status === 'suspended').length} заблокированных
                     </Typography>
                 </Box>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenCreate(true)}>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenCreate(true)}
+                        sx={{ textTransform: 'none', borderRadius: 2, px: 3 }}>
                     Создать тенант
                 </Button>
             </Box>
 
-            <Card>
+            {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+            {/* Таблица */}
+            <Card sx={{ borderRadius: 3, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <TableContainer>
                     <Table>
                         <TableHead>
-                            <TableRow>
+                            <TableRow sx={{
+                                '& th': {
+                                    fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase',
+                                    letterSpacing: 0.5, color: 'text.secondary',
+                                    borderBottom: '1px solid rgba(255,255,255,0.08)', py: 2,
+                                }
+                            }}>
                                 <TableCell>Организация</TableCell>
                                 <TableCell>Статус</TableCell>
-                                <TableCell>Ресурсы</TableCell>
+                                <TableCell>Использование</TableCell>
                                 <TableCell>Квоты</TableCell>
                                 <TableCell>Создан</TableCell>
                                 <TableCell align="right">Действия</TableCell>
@@ -218,61 +219,89 @@ export default function AdminTenants() {
                             {tenants.map((tenant) => (
                                 <TableRow
                                     key={tenant.id}
-                                    hover
                                     sx={{
+                                        '&:hover': { bgcolor: 'rgba(255,255,255,0.02)' },
+                                        '& td': { borderBottom: '1px solid rgba(255,255,255,0.04)', py: 2 },
                                         opacity: tenant.status === 'suspended' ? 0.6 : 1,
-                                        bgcolor: tenant.status === 'suspended' ? 'rgba(227,6,17,0.03)' : 'transparent',
                                     }}
                                 >
                                     <TableCell>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                            <BusinessIcon sx={{ color: tenant.status === 'active' ? 'primary.main' : 'error.main' }} />
+                                            <Box sx={{
+                                                width: 36, height: 36, borderRadius: 2,
+                                                bgcolor: tenant.status === 'active' ? 'rgba(41,121,255,0.1)' : 'rgba(227,6,17,0.1)',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            }}>
+                                                <BusinessIcon sx={{
+                                                    fontSize: 18,
+                                                    color: tenant.status === 'active' ? '#2979FF' : '#E30611',
+                                                }} />
+                                            </Box>
                                             <Box>
                                                 <Typography variant="body2" sx={{ fontWeight: 600 }}>{tenant.name}</Typography>
-                                                <Typography variant="caption" sx={{ color: 'text.secondary' }}>{tenant.admin}</Typography>
+                                                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                                    {tenant.admin || '—'}
+                                                </Typography>
                                             </Box>
                                         </Box>
                                     </TableCell>
+
                                     <TableCell>
                                         <Chip
-                                            icon={tenant.status === 'active' ? <ActiveIcon sx={{ fontSize: 16 }} /> : <BlockIcon sx={{ fontSize: 16 }} />}
+                                            icon={tenant.status === 'active'
+                                                ? <ActiveIcon sx={{ fontSize: '14px !important' }} />
+                                                : <BlockIcon sx={{ fontSize: '14px !important' }} />}
                                             label={tenant.status === 'active' ? 'Активен' : 'Заблокирован'}
                                             size="small"
-                                            color={tenant.status === 'active' ? 'success' : 'error'}
-                                            variant="outlined"
+                                            sx={{
+                                                bgcolor: tenant.status === 'active' ? 'rgba(0,200,83,0.1)' : 'rgba(227,6,17,0.1)',
+                                                color: tenant.status === 'active' ? '#00C853' : '#E30611',
+                                                border: 'none', fontWeight: 600, fontSize: '0.75rem',
+                                                '& .MuiChip-icon': { color: tenant.status === 'active' ? '#00C853' : '#E30611' },
+                                            }}
                                         />
                                     </TableCell>
+
                                     <TableCell>
-                                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                        <Typography variant="body2">
                                             {tenant.usage.vms} ВМ · {tenant.usage.cpu} vCPU · {tenant.usage.ram} ГБ
                                         </Typography>
                                     </TableCell>
+
                                     <TableCell>
-                                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                                             {tenant.quota.maxVMs} ВМ · {tenant.quota.maxCPU} vCPU · {tenant.quota.maxRAM} ГБ
                                         </Typography>
                                     </TableCell>
+
                                     <TableCell>
-                                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>{tenant.createdAt}</Typography>
+                                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                            {new Date(tenant.createdAt).toLocaleDateString('ru-RU')}
+                                        </Typography>
                                     </TableCell>
+
                                     <TableCell align="right">
                                         <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
                                             <Tooltip title="Редактировать">
-                                                <IconButton size="small" color="info" onClick={() => openEditDialog(tenant)}>
+                                                <IconButton size="small" onClick={() => openEditDialog(tenant)}
+                                                            sx={{ color: '#2979FF', '&:hover': { bgcolor: 'rgba(41,121,255,0.1)' } }}>
                                                     <EditIcon fontSize="small" />
                                                 </IconButton>
                                             </Tooltip>
                                             <Tooltip title={tenant.status === 'active' ? 'Заблокировать' : 'Разблокировать'}>
-                                                <IconButton
-                                                    size="small"
-                                                    color={tenant.status === 'active' ? 'warning' : 'success'}
-                                                    onClick={() => setOpenBan(tenant.id)}
-                                                >
+                                                <IconButton size="small" onClick={() => setOpenBan(tenant.id)}
+                                                            sx={{
+                                                                color: tenant.status === 'active' ? '#FFB300' : '#00C853',
+                                                                '&:hover': {
+                                                                    bgcolor: tenant.status === 'active' ? 'rgba(255,179,0,0.1)' : 'rgba(0,200,83,0.1)',
+                                                                },
+                                                            }}>
                                                     {tenant.status === 'active' ? <BlockIcon fontSize="small" /> : <ActiveIcon fontSize="small" />}
                                                 </IconButton>
                                             </Tooltip>
                                             <Tooltip title="Удалить">
-                                                <IconButton size="small" color="error" onClick={() => setOpenDelete(tenant.id)}>
+                                                <IconButton size="small" onClick={() => setOpenDelete(tenant.id)}
+                                                            sx={{ color: '#E30611', '&:hover': { bgcolor: 'rgba(227,6,17,0.1)' } }}>
                                                     <DeleteIcon fontSize="small" />
                                                 </IconButton>
                                             </Tooltip>
@@ -285,66 +314,78 @@ export default function AdminTenants() {
                 </TableContainer>
             </Card>
 
-            <Typography variant="h6" sx={{ mt: 4, mb: 2 }}>Использование квот</Typography>
-            <Grid container spacing={2}>
+            {/* Квоты */}
+            <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 700 }}>Использование квот</Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
                 {tenants.map((tenant) => (
-                    <Grid item xs={12} md={6} lg={4} key={tenant.id + '-quota'}>
-                        <Card sx={{
-                            border: '1px solid',
-                            borderColor: tenant.status === 'suspended' ? 'rgba(227,6,17,0.3)' : 'rgba(255,255,255,0.06)',
-                            opacity: tenant.status === 'suspended' ? 0.7 : 1,
-                        }}>
-                            <CardContent sx={{ p: 2.5 }}>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{tenant.name}</Typography>
-                                    <Chip
-                                        label={tenant.status === 'active' ? 'Активен' : 'Заблокирован'}
-                                        size="small"
-                                        color={tenant.status === 'active' ? 'success' : 'error'}
-                                        variant="outlined"
-                                    />
-                                </Box>
-                                {tenant.status === 'suspended' && (
-                                    <Alert severity="error" sx={{ mb: 2, py: 0 }}>
-                                        Клиент не может войти в систему
-                                    </Alert>
-                                )}
-                                <ResourceBar label="ВМ" used={tenant.usage.vms} total={tenant.quota.maxVMs} />
-                                <ResourceBar label="CPU" used={tenant.usage.cpu} total={tenant.quota.maxCPU} unit=" vCPU" />
-                                <ResourceBar label="RAM" used={tenant.usage.ram} total={tenant.quota.maxRAM} unit=" ГБ" />
-                                <ResourceBar label="Диск" used={tenant.usage.disk} total={tenant.quota.maxDisk} unit=" ГБ" />
-                            </CardContent>
-                        </Card>
-                    </Grid>
+                    <Card key={tenant.id + '-quota'} sx={{
+                        flex: '1 1 320px', maxWidth: 420,
+                        border: '1px solid',
+                        borderColor: tenant.status === 'suspended' ? 'rgba(227,6,17,0.2)' : 'rgba(255,255,255,0.06)',
+                        borderRadius: 3,
+                        opacity: tenant.status === 'suspended' ? 0.7 : 1,
+                    }}>
+                        <CardContent sx={{ p: 2.5 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{tenant.name}</Typography>
+                                <Chip
+                                    label={tenant.status === 'active' ? 'Активен' : 'Заблокирован'}
+                                    size="small"
+                                    sx={{
+                                        bgcolor: tenant.status === 'active' ? 'rgba(0,200,83,0.1)' : 'rgba(227,6,17,0.1)',
+                                        color: tenant.status === 'active' ? '#00C853' : '#E30611',
+                                        border: 'none', fontWeight: 600,
+                                    }}
+                                />
+                            </Box>
+                            {tenant.status === 'suspended' && (
+                                <Alert severity="error" sx={{ mb: 2, py: 0 }}>
+                                    Клиент не может войти в систему
+                                </Alert>
+                            )}
+                            <ResourceBar label="ВМ" used={tenant.usage.vms} total={tenant.quota.maxVMs} />
+                            <ResourceBar label="CPU" used={tenant.usage.cpu} total={tenant.quota.maxCPU} unit=" vCPU" />
+                            <ResourceBar label="RAM" used={tenant.usage.ram} total={tenant.quota.maxRAM} unit=" ГБ" />
+                            <ResourceBar label="Диск" used={tenant.usage.disk} total={tenant.quota.maxDisk} unit=" ГБ" />
+                        </CardContent>
+                    </Card>
                 ))}
-            </Grid>
+            </Box>
 
-            {/* Диалог создания */}
-            <Dialog open={openCreate} onClose={() => setOpenCreate(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>Создать тенант</DialogTitle>
+            {/* ===== Диалог СОЗДАНИЯ ===== */}
+            <Dialog open={openCreate} onClose={() => setOpenCreate(false)} maxWidth="sm" fullWidth
+                    PaperProps={{ sx: { borderRadius: 3, bgcolor: '#1A1A2E' } }}>
+                <DialogTitle sx={{ fontWeight: 700 }}>Создать тенант</DialogTitle>
+                <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)' }} />
                 <DialogContent><TenantForm /></DialogContent>
-                <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button onClick={() => setOpenCreate(false)}>Отмена</Button>
-                    <Button variant="contained" onClick={handleCreate}>Создать</Button>
+                <DialogActions sx={{ p: 2.5 }}>
+                    <Button onClick={() => setOpenCreate(false)} sx={{ textTransform: 'none' }}>Отмена</Button>
+                    <Button variant="contained" onClick={handleCreate} sx={{ textTransform: 'none', px: 3 }}>
+                        Создать
+                    </Button>
                 </DialogActions>
             </Dialog>
 
-            {/* Диалог редактирования */}
-            <Dialog open={!!openEdit} onClose={() => setOpenEdit(null)} maxWidth="sm" fullWidth>
-                <DialogTitle>Редактировать тенант</DialogTitle>
+            {/* ===== Диалог РЕДАКТИРОВАНИЯ ===== */}
+            <Dialog open={!!openEdit} onClose={() => setOpenEdit(null)} maxWidth="sm" fullWidth
+                    PaperProps={{ sx: { borderRadius: 3, bgcolor: '#1A1A2E' } }}>
+                <DialogTitle sx={{ fontWeight: 700 }}>Редактировать тенант</DialogTitle>
+                <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)' }} />
                 <DialogContent><TenantForm /></DialogContent>
-                <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button onClick={() => setOpenEdit(null)}>Отмена</Button>
-                    <Button variant="contained" onClick={handleEdit}>Сохранить</Button>
+                <DialogActions sx={{ p: 2.5 }}>
+                    <Button onClick={() => setOpenEdit(null)} sx={{ textTransform: 'none' }}>Отмена</Button>
+                    <Button variant="contained" onClick={handleEdit} sx={{ textTransform: 'none', px: 3 }}>
+                        Сохранить
+                    </Button>
                 </DialogActions>
             </Dialog>
 
-            {/* Диалог блокировки */}
-            <Dialog open={!!openBan} onClose={() => setOpenBan(null)} maxWidth="xs" fullWidth>
-                <DialogTitle>
+            {/* ===== Диалог БЛОКИРОВКИ ===== */}
+            <Dialog open={!!openBan} onClose={() => setOpenBan(null)} maxWidth="xs" fullWidth
+                    PaperProps={{ sx: { borderRadius: 3, bgcolor: '#1A1A2E' } }}>
+                <DialogTitle sx={{ fontWeight: 700 }}>
                     {tenants.find((t) => t.id === openBan)?.status === 'active'
-                        ? 'Заблокировать тенант?'
-                        : 'Разблокировать тенант?'}
+                        ? 'Заблокировать тенант?' : 'Разблокировать тенант?'}
                 </DialogTitle>
                 <DialogContent>
                     {tenants.find((t) => t.id === openBan)?.status === 'active' ? (
@@ -352,48 +393,53 @@ export default function AdminTenants() {
                             <Alert severity="warning" sx={{ mb: 2 }}>
                                 Клиент <strong>{tenants.find((t) => t.id === openBan)?.name}</strong> будет заблокирован
                             </Alert>
-                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>• Клиент не сможет войти в личный кабинет</Typography>
-                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>• Текущая сессия будет завершена</Typography>
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>• Клиент не сможет войти</Typography>
                             <Typography variant="body2" sx={{ color: 'text.secondary' }}>• ВМ продолжат работать</Typography>
-                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>• Управление ВМ станет недоступно</Typography>
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>• Управление станет недоступно</Typography>
                         </Box>
                     ) : (
-                        <Box>
-                            <Alert severity="success" sx={{ mb: 2 }}>
-                                Клиент <strong>{tenants.find((t) => t.id === openBan)?.name}</strong> будет разблокирован
-                            </Alert>
-                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                                Клиент сможет снова войти и управлять ресурсами.
-                            </Typography>
-                        </Box>
+                        <Alert severity="success">
+                            Клиент <strong>{tenants.find((t) => t.id === openBan)?.name}</strong> будет разблокирован
+                        </Alert>
                     )}
                 </DialogContent>
-                <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button onClick={() => setOpenBan(null)}>Отмена</Button>
+                <DialogActions sx={{ p: 2.5 }}>
+                    <Button onClick={() => setOpenBan(null)} sx={{ textTransform: 'none' }}>Отмена</Button>
                     <Button
                         variant="contained"
                         color={tenants.find((t) => t.id === openBan)?.status === 'active' ? 'error' : 'success'}
                         onClick={() => handleToggleBan(openBan)}
+                        sx={{ textTransform: 'none' }}
                     >
                         {tenants.find((t) => t.id === openBan)?.status === 'active' ? 'Заблокировать' : 'Разблокировать'}
                     </Button>
                 </DialogActions>
             </Dialog>
 
-            {/* Диалог удаления */}
-            <Dialog open={!!openDelete} onClose={() => setOpenDelete(null)} maxWidth="xs" fullWidth>
-                <DialogTitle>Удалить тенант?</DialogTitle>
+            {/* ===== Диалог УДАЛЕНИЯ ===== */}
+            <Dialog open={!!openDelete} onClose={() => setOpenDelete(null)} maxWidth="xs" fullWidth
+                    PaperProps={{ sx: { borderRadius: 3, bgcolor: '#1A1A2E' } }}>
+                <DialogTitle sx={{ fontWeight: 700 }}>Удалить тенант?</DialogTitle>
                 <DialogContent>
                     <Alert severity="error" sx={{ mb: 2 }}>Это действие необратимо!</Alert>
                     <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                        Тенант <strong>"{tenants.find((t) => t.id === openDelete)?.name}"</strong> будет удалён навсегда.
+                        Тенант <strong>"{tenants.find((t) => t.id === openDelete)?.name}"</strong> и все его ВМ будут удалены.
                     </Typography>
                 </DialogContent>
-                <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button onClick={() => setOpenDelete(null)}>Отмена</Button>
-                    <Button variant="contained" color="error" onClick={() => handleDelete(openDelete)}>Удалить</Button>
+                <DialogActions sx={{ p: 2.5 }}>
+                    <Button onClick={() => setOpenDelete(null)} sx={{ textTransform: 'none' }}>Отмена</Button>
+                    <Button variant="contained" color="error" onClick={() => handleDelete(openDelete)}
+                            sx={{ textTransform: 'none' }}>
+                        Удалить
+                    </Button>
                 </DialogActions>
             </Dialog>
+
+            {/* Уведомления */}
+            <Snackbar open={!!success} autoHideDuration={3000} onClose={() => setSuccess('')}
+                      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+                <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert>
+            </Snackbar>
         </Box>
     );
 }

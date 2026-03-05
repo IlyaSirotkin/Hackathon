@@ -3,23 +3,22 @@ const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
-
-app.use(cors({ origin: 'http://localhost:5178', credentials: true }));
+app.use(cors());
 app.use(express.json());
 
 // Роуты
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/tenants', require('./routes/tenants'));
 app.use('/api/vms', require('./routes/vms'));
-app.use('/api/networks', require('./routes/networks'));
 app.use('/api/stats', require('./routes/stats'));
+app.use('/api/networks', require('./routes/networks'));
+app.use('/api/metrics', require('./routes/metrics'));    // <-- ДОБАВЬ
 
-// Проверка
-app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+// Запуск коллектора метрик
+const { startMetricsCollector } = require('./services/metricsCollector');  // <-- ДОБАВЬ
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-    console.log(`🚀 Backend запущен на http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
+    startMetricsCollector();  // <-- ДОБАВЬ
 });
