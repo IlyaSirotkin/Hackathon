@@ -117,4 +117,6 @@ export const statsAPI = {
 export const metricsAPI = {
     getHistory: () => request('/metrics/history'),
     getCurrent: () => request('/metrics/current'),
+    getTenantHistory: () => request('/metrics/tenant'),
+    getTenantQuota: () => request('/metrics/tenant/quota'),
 };

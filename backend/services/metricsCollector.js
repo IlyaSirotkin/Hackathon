@@ -1,9 +1,8 @@
 const pool = require('../db');
 
-// Собирает реальную статистику из БД и записывает в metrics
+// === Общие метрики платформы ===
 async function collectMetrics() {
     try {
-        // Получаем суммарные квоты всех тенантов (это "ёмкость платформы")
         const capacity = await pool.query(`
       SELECT
         COALESCE(SUM(max_cpu), 64) AS total_cpu,
@@ -13,7 +12,6 @@ async function collectMetrics() {
       WHERE status = 'active'
     `);
 
-        // Получаем фактическое использование ВМ
         const usage = await pool.query(`
       SELECT
         COALESCE(SUM(cpu), 0) AS used_cpu,
@@ -27,18 +25,10 @@ async function collectMetrics() {
         const cap = capacity.rows[0];
         const use = usage.rows[0];
 
-        // Вычисляем проценты
-        const cpuPercent = cap.total_cpu > 0
-            ? (parseFloat(use.used_cpu) / parseFloat(cap.total_cpu)) * 100
-            : 0;
-        const ramPercent = cap.total_ram > 0
-            ? (parseFloat(use.used_ram) / parseFloat(cap.total_ram)) * 100
-            : 0;
-        const diskPercent = cap.total_disk > 0
-            ? (parseFloat(use.used_disk) / parseFloat(cap.total_disk)) * 100
-            : 0;
+        const cpuPercent = cap.total_cpu > 0 ? (parseFloat(use.used_cpu) / parseFloat(cap.total_cpu)) * 100 : 0;
+        const ramPercent = cap.total_ram > 0 ? (parseFloat(use.used_ram) / parseFloat(cap.total_ram)) * 100 : 0;
+        const diskPercent = cap.total_disk > 0 ? (parseFloat(use.used_disk) / parseFloat(cap.total_disk)) * 100 : 0;
 
-        // Добавляем небольшую случайную вариацию (±3%) для реалистичности
         const jitter = () => (Math.random() - 0.5) * 6;
 
         await pool.query(
@@ -53,30 +43,74 @@ async function collectMetrics() {
             ]
         );
 
-        console.log(
-            `[Metrics] CPU: ${cpuPercent.toFixed(1)}% | RAM: ${ramPercent.toFixed(1)}% | Disk: ${diskPercent.toFixed(1)}% | VMs: ${use.active_vms}/${use.total_vms}`
-        );
+        console.log(`[Metrics] Platform — CPU: ${cpuPercent.toFixed(1)}% | RAM: ${ramPercent.toFixed(1)}% | Disk: ${diskPercent.toFixed(1)}%`);
     } catch (err) {
-        console.error('[Metrics] Ошибка сбора:', err.message);
+        console.error('[Metrics] Platform error:', err.message);
     }
 }
 
-// Удаляем старые записи (старше 7 дней)
+// === Метрики по каждому тенанту ===
+async function collectTenantMetrics() {
+    try {
+        const tenants = await pool.query('SELECT id, max_cpu, max_ram, max_disk FROM tenants WHERE status = $1', ['active']);
+
+        for (const tenant of tenants.rows) {
+            const usage = await pool.query(`
+        SELECT
+          COALESCE(SUM(cpu), 0) AS used_cpu,
+          COALESCE(SUM(ram), 0) AS used_ram,
+          COALESCE(SUM(disk), 0) AS used_disk,
+          COUNT(*) FILTER (WHERE status = 'running') AS active_vms,
+          COUNT(*) AS total_vms
+        FROM virtual_machines
+        WHERE tenant_id = $1
+      `, [tenant.id]);
+
+            const use = usage.rows[0];
+
+            const cpuPercent = tenant.max_cpu > 0 ? (parseFloat(use.used_cpu) / tenant.max_cpu) * 100 : 0;
+            const ramPercent = tenant.max_ram > 0 ? (parseFloat(use.used_ram) / tenant.max_ram) * 100 : 0;
+            const diskPercent = tenant.max_disk > 0 ? (parseFloat(use.used_disk) / tenant.max_disk) * 100 : 0;
+
+            const jitter = () => (Math.random() - 0.5) * 4;
+
+            await pool.query(
+                `INSERT INTO tenant_metrics (tenant_id, cpu_percent, ram_percent, disk_percent, active_vms, total_vms)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+                [
+                    tenant.id,
+                    Math.max(0, Math.min(100, cpuPercent + jitter())),
+                    Math.max(0, Math.min(100, ramPercent + jitter())),
+                    Math.max(0, Math.min(100, diskPercent + jitter())),
+                    parseInt(use.active_vms),
+                    parseInt(use.total_vms),
+                ]
+            );
+        }
+
+        console.log(`[Metrics] Tenant metrics collected for ${tenants.rows.length} tenants`);
+    } catch (err) {
+        console.error('[Metrics] Tenant error:', err.message);
+    }
+}
+
+// === Очистка старых записей ===
 async function cleanOldMetrics() {
     try {
         await pool.query(`DELETE FROM metrics WHERE recorded_at < NOW() - INTERVAL '7 days'`);
+        await pool.query(`DELETE FROM tenant_metrics WHERE recorded_at < NOW() - INTERVAL '7 days'`);
     } catch (err) {
-        console.error('[Metrics] Ошибка очистки:', err.message);
+        console.error('[Metrics] Cleanup error:', err.message);
     }
 }
 
-// Заполняем историю за 24 часа (при первом запуске)
+// === Seed истории при первом запуске ===
 async function seedMetricsHistory() {
     try {
         const existing = await pool.query('SELECT COUNT(*) FROM metrics');
-        if (parseInt(existing.rows[0].count) > 10) return; // уже есть данные
+        if (parseInt(existing.rows[0].count) > 10) return;
 
-        console.log('[Metrics] Генерация истории за 24 часа...');
+        console.log('[Metrics] Generating 24h history...');
 
         const capacity = await pool.query(`
       SELECT
@@ -103,13 +137,11 @@ async function seedMetricsHistory() {
         const baseRam = cap.total_ram > 0 ? (parseFloat(use.used_ram) / parseFloat(cap.total_ram)) * 100 : 20;
         const baseDisk = cap.total_disk > 0 ? (parseFloat(use.used_disk) / parseFloat(cap.total_disk)) * 100 : 10;
 
-        // Генерируем точки каждые 15 минут за 24 часа
+        // Общие метрики
         for (let i = 96; i >= 0; i--) {
             const minutesAgo = i * 15;
-            const hour = 24 - (minutesAgo / 60);
-
-            // Имитируем дневной паттерн нагрузки (пик 10-16 часов)
             const hourOfDay = (new Date().getHours() - (minutesAgo / 60) + 48) % 24;
+
             let loadMultiplier = 1;
             if (hourOfDay >= 9 && hourOfDay <= 18) {
                 loadMultiplier = 1.5 + Math.sin((hourOfDay - 9) / 9 * Math.PI) * 0.8;
@@ -120,10 +152,9 @@ async function seedMetricsHistory() {
             }
 
             const jitter = () => (Math.random() - 0.5) * 8;
-
             const cpu = Math.max(1, Math.min(95, baseCpu * loadMultiplier + jitter()));
             const ram = Math.max(1, Math.min(95, baseRam * loadMultiplier * 0.9 + jitter()));
-            const disk = Math.max(1, Math.min(95, baseDisk + jitter() * 0.5)); // Диск меняется мало
+            const disk = Math.max(1, Math.min(95, baseDisk + jitter() * 0.5));
 
             await pool.query(
                 `INSERT INTO metrics (cpu_percent, ram_percent, disk_percent, active_vms, total_vms, recorded_at)
@@ -132,26 +163,76 @@ async function seedMetricsHistory() {
             );
         }
 
-        console.log('[Metrics] История создана (97 точек за 24 часа)');
+        // Метрики по тенантам
+        const tenants = await pool.query('SELECT id, max_cpu, max_ram, max_disk FROM tenants WHERE status = $1', ['active']);
+
+        for (const tenant of tenants.rows) {
+            const tUsage = await pool.query(`
+        SELECT
+          COALESCE(SUM(cpu), 0) AS used_cpu,
+          COALESCE(SUM(ram), 0) AS used_ram,
+          COALESCE(SUM(disk), 0) AS used_disk,
+          COUNT(*) FILTER (WHERE status = 'running') AS active_vms,
+          COUNT(*) AS total_vms
+        FROM virtual_machines WHERE tenant_id = $1
+      `, [tenant.id]);
+
+            const tu = tUsage.rows[0];
+            const tBaseCpu = tenant.max_cpu > 0 ? (parseFloat(tu.used_cpu) / tenant.max_cpu) * 100 : 10;
+            const tBaseRam = tenant.max_ram > 0 ? (parseFloat(tu.used_ram) / tenant.max_ram) * 100 : 15;
+            const tBaseDisk = tenant.max_disk > 0 ? (parseFloat(tu.used_disk) / tenant.max_disk) * 100 : 8;
+
+            for (let i = 96; i >= 0; i--) {
+                const minutesAgo = i * 15;
+                const hourOfDay = (new Date().getHours() - (minutesAgo / 60) + 48) % 24;
+
+                let loadMultiplier = 1;
+                if (hourOfDay >= 9 && hourOfDay <= 18) {
+                    loadMultiplier = 1.3 + Math.sin((hourOfDay - 9) / 9 * Math.PI) * 0.7;
+                } else if (hourOfDay >= 0 && hourOfDay <= 6) {
+                    loadMultiplier = 0.3 + Math.random() * 0.3;
+                } else {
+                    loadMultiplier = 0.7 + Math.random() * 0.3;
+                }
+
+                const jitter = () => (Math.random() - 0.5) * 6;
+                const cpu = Math.max(0, Math.min(95, tBaseCpu * loadMultiplier + jitter()));
+                const ram = Math.max(0, Math.min(95, tBaseRam * loadMultiplier * 0.9 + jitter()));
+                const disk = Math.max(0, Math.min(95, tBaseDisk + jitter() * 0.3));
+
+                await pool.query(
+                    `INSERT INTO tenant_metrics (tenant_id, cpu_percent, ram_percent, disk_percent, active_vms, total_vms, recorded_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW() - INTERVAL '${minutesAgo} minutes')`,
+                    [tenant.id, cpu.toFixed(1), ram.toFixed(1), disk.toFixed(1), parseInt(tu.active_vms), parseInt(tu.total_vms)]
+                );
+            }
+        }
+
+        console.log('[Metrics] 24h history generated for platform + tenants');
     } catch (err) {
-        console.error('[Metrics] Ошибка seed:', err.message);
+        console.error('[Metrics] Seed error:', err.message);
     }
 }
 
 function startMetricsCollector() {
-    // При старте — заполняем историю если пусто
     seedMetricsHistory();
 
-    // Собираем метрики каждые 5 минут
-    setInterval(collectMetrics, 5 * 60 * 1000);
+    // Каждые 5 минут
+    setInterval(() => {
+        collectMetrics();
+        collectTenantMetrics();
+    }, 5 * 60 * 1000);
 
-    // Чистим старые каждый час
+    // Очистка каждый час
     setInterval(cleanOldMetrics, 60 * 60 * 1000);
 
-    // Первый сбор через 10 секунд
-    setTimeout(collectMetrics, 10000);
+    // Первый сбор через 10 сек
+    setTimeout(() => {
+        collectMetrics();
+        collectTenantMetrics();
+    }, 10000);
 
-    console.log('[Metrics] Коллектор запущен (интервал: 5 мин)');
+    console.log('[Metrics] Collector started (interval: 5 min)');
 }
 
 module.exports = { startMetricsCollector };

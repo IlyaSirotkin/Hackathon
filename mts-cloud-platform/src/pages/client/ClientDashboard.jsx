@@ -1,58 +1,52 @@
 ﻿import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Grid, Card, CardContent, Typography, Box, Chip, CircularProgress } from '@mui/material';
+import {
+    Grid, Card, CardContent, Typography, Box, Chip, CircularProgress,
+    IconButton, Tooltip,
+} from '@mui/material';
 import {
     Computer as VMIcon, Memory as CPUIcon,
     Storage as RAMIcon, Folder as DiskIcon, Circle as CircleIcon,
+    Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import {
-    PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
+    PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip,
     AreaChart, Area, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
 import StatCard from '../../components/StatCard';
 import ResourceBar from '../../components/ResourceBar';
-import { vmsAPI } from '../../services/api';
-
-const generateClientLoad = () => {
-    const data = [];
-    for (let i = 0; i < 24; i++) {
-        const hour = i.toString().padStart(2, '0') + ':00';
-        const base = i >= 8 && i <= 18 ? 50 : 15;
-        data.push({
-            time: hour,
-            cpu: Math.min(100, Math.max(5, base + Math.floor(Math.random() * 30 - 10))),
-            ram: Math.min(100, Math.max(10, base - 5 + Math.floor(Math.random() * 20))),
-        });
-    }
-    return data;
-};
-
-const clientLoadData = generateClientLoad();
+import { vmsAPI, metricsAPI } from '../../services/api';
 
 export default function ClientDashboard() {
     const { user } = useAuth();
     const [tenant, setTenant] = useState(null);
     const [vms, setVms] = useState([]);
+    const [metricsHistory, setMetricsHistory] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [lastUpdate, setLastUpdate] = useState(null);
 
-    useEffect(() => {
-        vmsAPI.getAll()
-            .then((vmsData) => {
+    const loadData = () => {
+        setLoading(true);
+        Promise.all([
+            vmsAPI.getAll(),
+            metricsAPI.getTenantQuota(),
+            metricsAPI.getTenantHistory(),
+        ])
+            .then(([vmsData, quotaData, historyData]) => {
                 setVms(vmsData);
-                setTenant({
-                    name: user.tenantName || 'Мой тенант',
-                    quota: { maxVMs: 10, maxCPU: 32, maxRAM: 64, maxDisk: 500 },
-                    usage: {
-                        vms: vmsData.length,
-                        cpu: vmsData.reduce((sum, vm) => sum + vm.cpu, 0),
-                        ram: vmsData.reduce((sum, vm) => sum + vm.ram, 0),
-                        disk: vmsData.reduce((sum, vm) => sum + vm.disk, 0),
-                    },
-                });
+                setTenant(quotaData);
+                setMetricsHistory(historyData);
+                setLastUpdate(new Date());
             })
             .catch(console.error)
             .finally(() => setLoading(false));
-    }, [user]);
+    };
+
+    useEffect(() => {
+        loadData();
+        const interval = setInterval(loadData, 5 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, []);
 
     if (loading || !tenant) {
         return (
@@ -70,18 +64,39 @@ export default function ClientDashboard() {
         { name: 'Остановлены', value: stoppedVMs, color: '#666' },
     ].filter((d) => d.value > 0);
 
+    // Прореживаем — каждая 4-я точка (раз в час)
+    const chartData = metricsHistory.filter((_, i) => i % 4 === 0 || i === metricsHistory.length - 1);
+
     return (
         <Box>
-            <Typography variant="h5" sx={{ mb: 0.5 }}>
-                Добро пожаловать, {tenant.name}
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
-                Обзор ваших облачных ресурсов
-            </Typography>
+            {/* Заголовок */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
+                <Box>
+                    <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                        Добро пожаловать, {tenant.name}
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                        Обзор ваших облачных ресурсов
+                    </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {lastUpdate && (
+                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                            {lastUpdate.toLocaleTimeString('ru-RU')}
+                        </Typography>
+                    )}
+                    <Tooltip title="Обновить">
+                        <IconButton onClick={loadData} size="small" sx={{ color: 'text.secondary' }}>
+                            <RefreshIcon />
+                        </IconButton>
+                    </Tooltip>
+                </Box>
+            </Box>
 
+            {/* Карточки */}
             <Grid container spacing={3} sx={{ mb: 3 }}>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                    <StatCard title="Виртуальные машины" value={vms.length}
+                    <StatCard title="Виртуальные машины" value={tenant.usage.vms}
                               subtitle={`Лимит: ${tenant.quota.maxVMs}`} icon={<VMIcon />} color="#E30611" />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
@@ -99,33 +114,56 @@ export default function ClientDashboard() {
             </Grid>
 
             <Grid container spacing={3}>
+                {/* График загрузки */}
                 <Grid size={{ xs: 12, md: 8 }}>
-                    <Card sx={{ height: 420 }}>
+                    <Card sx={{ height: 420, borderRadius: 3, border: '1px solid rgba(255,255,255,0.06)' }}>
                         <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                            <Typography variant="h6" sx={{ mb: 2 }}>Загрузка за 24 часа</Typography>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                <Typography variant="h6" sx={{ fontWeight: 700 }}>Загрузка за 24 часа</Typography>
+                                <Chip
+                                    label={`${metricsHistory.length} точек`}
+                                    size="small"
+                                    sx={{ bgcolor: 'rgba(255,255,255,0.05)', color: 'text.secondary' }}
+                                />
+                            </Box>
                             <Box sx={{ flex: 1, minHeight: 0 }}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={clientLoadData}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                                        <XAxis dataKey="time" stroke="#666" fontSize={11} />
-                                        <YAxis stroke="#666" fontSize={12} unit="%" />
-                                        <Tooltip contentStyle={{
-                                            backgroundColor: '#1A1A2E', border: '1px solid rgba(255,255,255,0.1)',
-                                            borderRadius: 8, color: '#fff',
-                                        }} />
-                                        <Area type="monotone" dataKey="cpu" name="CPU %" stroke="#E30611" fill="rgba(227,6,17,0.15)" strokeWidth={2} />
-                                        <Area type="monotone" dataKey="ram" name="RAM %" stroke="#2979FF" fill="rgba(41,121,255,0.15)" strokeWidth={2} />
-                                    </AreaChart>
-                                </ResponsiveContainer>
+                                {chartData.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={chartData}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                                            <XAxis dataKey="time" stroke="#666" fontSize={11} interval="preserveStartEnd" />
+                                            <YAxis stroke="#666" fontSize={12} unit="%" domain={[0, 100]} />
+                                            <RechartsTooltip
+                                                contentStyle={{
+                                                    backgroundColor: '#1A1A2E',
+                                                    border: '1px solid rgba(255,255,255,0.1)',
+                                                    borderRadius: 8, color: '#fff',
+                                                }}
+                                                formatter={(value) => [`${Number(value).toFixed(1)}%`]}
+                                            />
+                                            <Area type="monotone" dataKey="cpu" name="CPU"
+                                                  stroke="#E30611" fill="rgba(227,6,17,0.15)" strokeWidth={2} />
+                                            <Area type="monotone" dataKey="ram" name="RAM"
+                                                  stroke="#2979FF" fill="rgba(41,121,255,0.15)" strokeWidth={2} />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Typography sx={{ color: 'text.secondary' }}>
+                                            Данные начнут появляться автоматически
+                                        </Typography>
+                                    </Box>
+                                )}
                             </Box>
                         </CardContent>
                     </Card>
                 </Grid>
 
+                {/* Пирог статусов ВМ */}
                 <Grid size={{ xs: 12, md: 4 }}>
-                    <Card sx={{ height: 420 }}>
+                    <Card sx={{ height: 420, borderRadius: 3, border: '1px solid rgba(255,255,255,0.06)' }}>
                         <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                            <Typography variant="h6" sx={{ mb: 2 }}>Статус ВМ</Typography>
+                            <Typography variant="h6" sx={{ mb: 2, fontWeight: 700 }}>Статус ВМ</Typography>
                             {pieData.length > 0 ? (
                                 <>
                                     <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
@@ -137,10 +175,13 @@ export default function ClientDashboard() {
                                                         <Cell key={i} fill={entry.color} />
                                                     ))}
                                                 </Pie>
-                                                <Tooltip contentStyle={{
-                                                    backgroundColor: '#1A1A2E', border: '1px solid rgba(255,255,255,0.1)',
-                                                    borderRadius: 8, color: '#fff',
-                                                }} />
+                                                <RechartsTooltip
+                                                    contentStyle={{
+                                                        backgroundColor: '#1A1A2E',
+                                                        border: '1px solid rgba(255,255,255,0.1)',
+                                                        borderRadius: 8, color: '#fff',
+                                                    }}
+                                                />
                                             </PieChart>
                                         </ResponsiveContainer>
                                     </Box>
@@ -164,11 +205,12 @@ export default function ClientDashboard() {
                     </Card>
                 </Grid>
 
+                {/* Квоты */}
                 <Grid size={{ xs: 12, md: 6 }}>
-                    <Card>
+                    <Card sx={{ borderRadius: 3, border: '1px solid rgba(255,255,255,0.06)' }}>
                         <CardContent sx={{ p: 3 }}>
-                            <Typography variant="h6" sx={{ mb: 3 }}>Использование квот</Typography>
-                            <ResourceBar label="ВМ" used={vms.length} total={tenant.quota.maxVMs} />
+                            <Typography variant="h6" sx={{ mb: 3, fontWeight: 700 }}>Использование квот</Typography>
+                            <ResourceBar label="ВМ" used={tenant.usage.vms} total={tenant.quota.maxVMs} />
                             <ResourceBar label="CPU" used={tenant.usage.cpu} total={tenant.quota.maxCPU} unit=" vCPU" />
                             <ResourceBar label="RAM" used={tenant.usage.ram} total={tenant.quota.maxRAM} unit=" ГБ" />
                             <ResourceBar label="Диск" used={tenant.usage.disk} total={tenant.quota.maxDisk} unit=" ГБ" />
@@ -176,10 +218,11 @@ export default function ClientDashboard() {
                     </Card>
                 </Grid>
 
+                {/* Список ВМ */}
                 <Grid size={{ xs: 12, md: 6 }}>
-                    <Card>
+                    <Card sx={{ borderRadius: 3, border: '1px solid rgba(255,255,255,0.06)' }}>
                         <CardContent sx={{ p: 3 }}>
-                            <Typography variant="h6" sx={{ mb: 2 }}>Ваши машины</Typography>
+                            <Typography variant="h6" sx={{ mb: 2, fontWeight: 700 }}>Ваши машины</Typography>
                             {vms.length > 0 ? vms.map((vm) => (
                                 <Box key={vm.id} sx={{
                                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -195,12 +238,17 @@ export default function ClientDashboard() {
                                     <Chip
                                         label={vm.status === 'running' ? 'Работает' : 'Остановлена'}
                                         size="small"
-                                        color={vm.status === 'running' ? 'success' : 'default'}
-                                        variant="outlined"
+                                        sx={{
+                                            bgcolor: vm.status === 'running' ? 'rgba(0,200,83,0.1)' : 'rgba(255,255,255,0.05)',
+                                            color: vm.status === 'running' ? '#00C853' : '#666',
+                                            border: 'none', fontWeight: 600,
+                                        }}
                                     />
                                 </Box>
                             )) : (
-                                <Typography variant="body2" sx={{ color: 'text.secondary' }}>Нет ВМ</Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                    У вас пока нет виртуальных машин
+                                </Typography>
                             )}
                         </CardContent>
                     </Card>
