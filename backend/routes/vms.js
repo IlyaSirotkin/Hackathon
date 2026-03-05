@@ -1,15 +1,13 @@
-
 const express = require('express');
 const pool = require('../db');
 const { authenticateToken, checkTenantActive } = require('../middleware/auth');
 
 const router = express.Router();
 
-// GET /api/vms — ВМ текущего пользователя (или все для админа)
+// GET /api/vms
 router.get('/', authenticateToken, checkTenantActive, async (req, res) => {
     try {
         let result;
-
         if (req.user.role === 'admin') {
             result = await pool.query(`
         SELECT vm.*, t.name AS tenant_name
@@ -18,13 +16,11 @@ router.get('/', authenticateToken, checkTenantActive, async (req, res) => {
         ORDER BY vm.created_at
       `);
         } else {
-            // Клиент видит ТОЛЬКО свои ВМ
             result = await pool.query(
                 'SELECT * FROM virtual_machines WHERE tenant_id = $1 ORDER BY created_at',
                 [req.user.tenantId]
             );
         }
-
         res.json(result.rows);
     } catch (err) {
         console.error(err);
@@ -32,13 +28,12 @@ router.get('/', authenticateToken, checkTenantActive, async (req, res) => {
     }
 });
 
-// POST /api/vms — создать ВМ
+// POST /api/vms
 router.post('/', authenticateToken, checkTenantActive, async (req, res) => {
     try {
         const tenantId = req.user.role === 'admin' ? req.body.tenantId : req.user.tenantId;
         const { name, os, cpu, ram, disk } = req.body;
 
-        // Проверяем квоты
         const tenant = await pool.query('SELECT * FROM tenants WHERE id = $1', [tenantId]);
         if (tenant.rows.length === 0) {
             return res.status(404).json({ error: 'Тенант не найден' });
@@ -47,7 +42,7 @@ router.post('/', authenticateToken, checkTenantActive, async (req, res) => {
 
         const usage = await pool.query(
             `SELECT COUNT(*) AS vms, COALESCE(SUM(cpu),0) AS cpu,
-              COALESCE(SUM(ram),0) AS ram, COALESCE(SUM(disk),0) AS disk
+        COALESCE(SUM(ram),0) AS ram, COALESCE(SUM(disk),0) AS disk
        FROM virtual_machines WHERE tenant_id = $1`,
             [tenantId]
         );
@@ -66,7 +61,6 @@ router.post('/', authenticateToken, checkTenantActive, async (req, res) => {
             return res.status(400).json({ error: `Недостаточно диска (доступно: ${t.max_disk - parseInt(u.disk)})` });
         }
 
-        // Создаём ВМ
         const result = await pool.query(
             `INSERT INTO virtual_machines (tenant_id, name, os, cpu, ram, disk, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'creating')
@@ -74,7 +68,6 @@ router.post('/', authenticateToken, checkTenantActive, async (req, res) => {
             [tenantId, name, os, cpu, ram, disk]
         );
 
-        // Логируем
         await pool.query(
             `INSERT INTO audit_logs (user_id, tenant_id, action, target_type, target_id, details)
        VALUES ($1, $2, 'vm.create', 'vm', $3, $4)`,
@@ -88,13 +81,66 @@ router.post('/', authenticateToken, checkTenantActive, async (req, res) => {
     }
 });
 
-// PATCH /api/vms/:id/action — start / stop
+// PATCH /api/vms/:id — обновить ВМ
+router.patch('/:id', authenticateToken, checkTenantActive, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, cpu, ram, disk, os } = req.body;
+
+        const vm = await pool.query('SELECT * FROM virtual_machines WHERE id = $1', [id]);
+        if (vm.rows.length === 0) {
+            return res.status(404).json({ error: 'ВМ не найдена' });
+        }
+
+        if (req.user.role === 'client' && vm.rows[0].tenant_id !== req.user.tenantId) {
+            return res.status(403).json({ error: 'Нет доступа' });
+        }
+
+        if (vm.rows[0].status === 'running' && (cpu || ram || disk)) {
+            return res.status(400).json({ error: 'Остановите ВМ перед изменением ресурсов' });
+        }
+
+        const updates = [];
+        const values = [];
+        let idx = 1;
+
+        if (name) { updates.push(`name = $${idx++}`); values.push(name); }
+        if (cpu) { updates.push(`cpu = $${idx++}`); values.push(cpu); }
+        if (ram) { updates.push(`ram = $${idx++}`); values.push(ram); }
+        if (disk) { updates.push(`disk = $${idx++}`); values.push(disk); }
+        if (os) { updates.push(`os = $${idx++}`); values.push(os); }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'Нечего обновлять' });
+        }
+
+        updates.push(`updated_at = NOW()`);
+        values.push(id);
+
+        const result = await pool.query(
+            `UPDATE virtual_machines SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+            values
+        );
+
+        await pool.query(
+            `INSERT INTO audit_logs (user_id, tenant_id, action, target_type, target_id, details)
+       VALUES ($1, $2, 'vm.update', 'vm', $3, $4)`,
+            [req.user.id, vm.rows[0].tenant_id, id, JSON.stringify({ name, cpu, ram, disk, os })]
+        );
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
+// PATCH /api/vms/:id/action — start / stop / reboot
 router.patch('/:id/action', authenticateToken, checkTenantActive, async (req, res) => {
     try {
         const { id } = req.params;
-        const { action } = req.body; // 'start' или 'stop'
+        const { action } = req.body;
 
-        // Проверяем принадлежность ВМ
         let vm;
         if (req.user.role === 'admin') {
             vm = await pool.query('SELECT * FROM virtual_machines WHERE id = $1', [id]);

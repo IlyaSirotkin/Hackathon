@@ -86,6 +86,12 @@ export const vmsAPI = {
             body: JSON.stringify(data),
         }),
 
+    update: (id, data) =>
+        request(`/vms/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        }),
+
     action: (id, action) =>
         request(`/vms/${id}/action`, {
             method: 'PATCH',
