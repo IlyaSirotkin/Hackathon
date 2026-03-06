@@ -11,13 +11,15 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
         const result = await pool.query(`
       SELECT
         t.*,
+        p.name AS plan_name, p.price_monthly,
         COUNT(vm.id) AS used_vms,
         COALESCE(SUM(vm.cpu), 0) AS used_cpu,
         COALESCE(SUM(vm.ram), 0) AS used_ram,
         COALESCE(SUM(vm.disk), 0) AS used_disk
       FROM tenants t
+      LEFT JOIN plans p ON t.plan_id = p.id
       LEFT JOIN virtual_machines vm ON vm.tenant_id = t.id
-      GROUP BY t.id
+      GROUP BY t.id, p.name, p.price_monthly
       ORDER BY t.created_at
     `);
 
@@ -27,6 +29,10 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
             status: t.status,
             createdAt: t.created_at,
             admin: t.admin_email,
+            planId: t.plan_id,
+            planName: t.plan_name,
+            priceMonthly: parseFloat(t.price_monthly || 0),
+            planExpiresAt: t.plan_expires_at,
             quota: {
                 maxVMs: t.max_vms,
                 maxCPU: t.max_cpu,

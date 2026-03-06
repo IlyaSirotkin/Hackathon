@@ -10,15 +10,17 @@ import AdminLayout from './layouts/AdminLayout';
 import ClientDashboard from './pages/client/ClientDashboard';
 import ClientVMs from './pages/client/ClientVMs';
 import ClientNetworks from './pages/client/ClientNetworks';
+import ClientSubscription from './pages/client/ClientSubscription';
 
 // Admin Pages
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminTenants from './pages/admin/AdminTenants';
 import AdminVMs from './pages/admin/AdminVMs';
 import AdminResources from './pages/admin/AdminResources';
+import AdminPlans from './pages/admin/AdminPlans';
 
 export default function App() {
-    const { user, loading } = useAuth();  // ← внутри компонента!
+    const { user, loading } = useAuth();
 
     if (loading) {
         return (
@@ -37,6 +39,7 @@ export default function App() {
                 <Route index element={<ClientDashboard />} />
                 <Route path="vms" element={<ClientVMs />} />
                 <Route path="networks" element={<ClientNetworks />} />
+                <Route path="subscription" element={<ClientSubscription />} />
             </Route>
 
             {/* Admin Routes */}
@@ -45,6 +48,7 @@ export default function App() {
                 <Route path="tenants" element={<AdminTenants />} />
                 <Route path="vms" element={<AdminVMs />} />
                 <Route path="resources" element={<AdminResources />} />
+                <Route path="plans" element={<AdminPlans />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/login" />} />

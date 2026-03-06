@@ -10,6 +10,7 @@ import {
     Dashboard as DashboardIcon,
     Computer as ComputerIcon,
     NetworkCheck as NetworkIcon,
+    CreditCard as SubIcon,
     Logout as LogoutIcon,
     Menu as MenuIcon,
     Cloud as CloudIcon,
@@ -22,6 +23,7 @@ const menuItems = [
     { text: 'Обзор', icon: <DashboardIcon />, path: '/client' },
     { text: 'Виртуальные машины', icon: <ComputerIcon />, path: '/client/vms' },
     { text: 'Сети', icon: <NetworkIcon />, path: '/client/networks' },
+    { text: 'Подписка', icon: <SubIcon />, path: '/client/subscription' },
 ];
 
 export default function ClientLayout() {

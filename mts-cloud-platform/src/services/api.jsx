@@ -120,3 +120,19 @@ export const metricsAPI = {
     getTenantHistory: () => request('/metrics/tenant'),
     getTenantQuota: () => request('/metrics/tenant/quota'),
 };
+// ===== PLANS =====
+export const plansAPI = {
+    getAll: () => request('/plans'),
+    getCurrent: () => request('/plans/current'),
+    change: (planId) =>
+        request('/plans/change', {
+            method: 'POST',
+            body: JSON.stringify({ planId }),
+        }),
+    setTenantPlan: (tenantId, planId) =>
+        request(`/plans/tenant/${tenantId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ planId }),
+        }),
+    getHistory: (tenantId) => request(`/plans/history/${tenantId}`),
+};

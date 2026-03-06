@@ -12,7 +12,8 @@ app.use('/api/tenants', require('./routes/tenants'));
 app.use('/api/vms', require('./routes/vms'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/networks', require('./routes/networks'));
-app.use('/api/metrics', require('./routes/metrics'));    // <-- ДОБАВЬ
+app.use('/api/metrics', require('./routes/metrics'));
+app.use('/api/plans', require('./routes/plans'));
 
 // Запуск коллектора метрик
 const { startMetricsCollector } = require('./services/metricsCollector');  // <-- ДОБАВЬ

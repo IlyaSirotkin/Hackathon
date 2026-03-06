@@ -11,6 +11,7 @@ import {
     People as PeopleIcon,
     Computer as ComputerIcon,
     Storage as StorageIcon,
+    CreditCard as PlansIcon,
     Logout as LogoutIcon,
     Menu as MenuIcon,
     AdminPanelSettings as AdminIcon,
@@ -23,6 +24,7 @@ const menuItems = [
     { text: 'Тенанты', icon: <PeopleIcon />, path: '/admin/tenants' },
     { text: 'Все ВМ', icon: <ComputerIcon />, path: '/admin/vms' },
     { text: 'Ресурсы', icon: <StorageIcon />, path: '/admin/resources' },
+    { text: 'Подписки', icon: <PlansIcon />, path: '/admin/plans' },
 ];
 
 export default function AdminLayout() {
